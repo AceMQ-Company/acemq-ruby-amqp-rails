@@ -1,0 +1,123 @@
+plugins:
+  - rubocop-rspec
+
+AllCops:
+  TargetRubyVersion: 3.1
+  NewCops: enable
+  Exclude:
+    - vendor/**/*
+    - .bundle/**/*
+
+# The house style everywhere else in AceMQ: comments explain why, and a
+# paragraph that earns its place is worth more than a line under 80 columns.
+Layout/LineLength:
+  Max: 96
+
+# Double quotes throughout, as in the library.
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+Style/StringLiteralsInInterpolation:
+  EnforcedStyle: double_quotes
+
+# Configuration has as many settings as the thing it configures has decisions,
+# and listing them in one constructor is what makes them readable as a set.
+Metrics/ParameterLists:
+  Enabled: false
+Metrics/MethodLength:
+  Max: 30
+Metrics/AbcSize:
+  Max: 30
+# The specs name consumer classes at the top level on purpose: a consumer with a
+# name is the thing being tested, since the name is what the registry keys on and
+# what a broker's subscription list shows.
+Lint/ConstantDefinitionInBlock:
+  Enabled: false
+
+# The generated application in spec/support is written as heredocs of Ruby. It is
+# source in a string, and no cop can read it as source.
+Lint/InterpolationCheck:
+  Exclude:
+    - spec/support/rails_application.rb
+
+# Several of these specs assert on more than one thing because the thing being
+# asserted is a shape — every option a consumer class turned into, every field
+# of an envelope that survived the wire. Splitting them would multiply the boot
+# of a real Rails application by four.
+RSpec/MultipleExpectations:
+  Max: 8
+RSpec/ExampleLength:
+  Max: 25
+RSpec/NestedGroups:
+  Max: 4
+# before(:context) in the Rails application spec is the point: generating an
+# application, resolving its bundle and booting a server once is the difference
+# between a spec that runs in thirty seconds and one that runs in six minutes.
+RSpec/BeforeAfterAll:
+  Enabled: false
+RSpec/InstanceVariable:
+  Exclude:
+    - spec/rails_application_spec.rb
+
+# `it` reads better than `entry` or `spec` in a one-line block and this codebase
+# uses it that way throughout. The cop is guarding against Ruby 3.4's implicit
+# `it` block parameter, which nothing here relies on.
+Style/ItAssignment:
+  Enabled: false
+
+# lib/acemq-amqp-rails.rb is named for the gem, which is how bundler finds it
+# without a `require:` option in a Gemfile. The library does the same.
+Naming/FileName:
+  Exclude:
+    - lib/acemq-amqp-rails.rb
+
+# An option parser is a list of options and a rake namespace is a list of tasks.
+# Both are as long as what they describe, and splitting either in two would put
+# half a list in each half.
+Metrics/BlockLength:
+  Exclude:
+    - spec/**/*
+    - "*.gemspec"
+    - exe/*
+    - lib/acemq/rails/tasks.rake
+
+# Column widths in a one-line report. Annotating four of them would make the
+# format string longer than the line it formats.
+Style/FormatStringToken:
+  Exclude:
+    - lib/acemq/rails/tasks.rake
+
+# `cancel_all` and `wait_for_http` answer a question and do the work; renaming
+# them to `cancel_all?` would suggest they only ask.
+Naming/PredicateMethod:
+  Enabled: false
+
+# The specs are named for what they cover rather than for the constant's path.
+# `spec/runner_spec.rb` beside `lib/acemq/rails/runner.rb` is the shape the
+# library uses and the one people look for.
+RSpec/SpecFilePathFormat:
+  Enabled: false
+
+# Reloading is what one of these specs is about, and remove_const is the only
+# way to reproduce what Zeitwerk does.
+RSpec/RemoveConst:
+  Exclude:
+    - spec/registry_spec.rb
+
+RSpec/LeakyConstantDeclaration:
+  Exclude:
+    - spec/rails_application_spec.rb
+
+# Generating a Rails application, writing its files, booting it, driving it over
+# HTTP and taking it down is what this class is. Every method in it is one step
+# of that, and there is no half to lift out.
+Metrics/ClassLength:
+  Max: 220
+  Exclude:
+    - spec/support/rails_application.rb
+
+# Two specs describe a running system rather than a class: a real broker and a
+# real Rails application. There is no constant to name that would not be a lie.
+RSpec/DescribeClass:
+  Exclude:
+    - spec/integration_spec.rb
+    - spec/rails_application_spec.rb

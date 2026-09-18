@@ -1,0 +1,161 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Copyright 2026 AceMQ.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# The AceMQ consumer process.
+#
+#   bundle exec acemq-consumer
+#   bundle exec acemq-consumer --queues orders.new,orders.cancelled
+#
+# `rake acemq:consume` does the same thing and is the friendlier name. This
+# exists for two reasons, and the second one is not a matter of taste.
+#
+# Rake is a layer between the signal and the drain: it installs handlers of its
+# own, a task's exit code goes out through rake's, and Ctrl-C in a terminal
+# running rake prints a backtrace from inside rake before anything of ours
+# notices. For a process whose entire job is to start, wait, and drain correctly
+# on a signal, one fewer layer is worth an executable. A Procfile line, a systemd
+# ExecStart and a container CMD all want a command rather than a task runner
+# running a command.
+#
+# And this boots the application itself, which lets it turn reloading off before
+# the application is initialized. `rake acemq:consume` cannot: by the time a task
+# body runs, `:environment` has already booted with whatever the environment file
+# said, and in development that means reloading is on. See docs/reloading.md —
+# and the warning the runner prints in that case.
+
+require "optparse"
+
+options = {}
+
+OptionParser.new do |parser|
+  parser.banner = "Usage: acemq-consumer [options]"
+
+  parser.on("--queues LIST", Array,
+            "Only consumers reading these queues (default: all of them)") do |list|
+    options[:queues] = list
+  end
+
+  parser.on("-e", "--environment ENV", "RAILS_ENV to boot in") do |env|
+    options[:environment] = env
+  end
+
+  parser.on("--require PATH",
+            "The application to boot (default: config/application)") do |path|
+    options[:require] = path
+  end
+
+  parser.on("--reload",
+            "Keep the development autoloader on. Read docs/reloading.md first") do
+    options[:reload] = true
+  end
+
+  parser.on("-q", "--quiet", "Do not mirror this gem's log lines to stdout") do
+    options[:quiet] = true
+  end
+
+  parser.on("-v", "--version", "Print the version and exit") do
+    require "acemq/rails/version"
+    puts AceMQ::Rails::VERSION
+    exit 0
+  end
+
+  parser.on("-h", "--help", "Print this and exit") do
+    puts parser
+    exit 0
+  end
+end.parse!
+
+ENV["RAILS_ENV"] = options[:environment] if options[:environment]
+
+# `config/application` rather than `config/environment`, because the difference
+# between the two is exactly the window this needs: application.rb defines the
+# application and environment.rb calls `initialize!` on it. Booting the first by
+# hand leaves somewhere to stand between them.
+boot = options[:require] || "./config/application"
+begin
+  require File.expand_path(boot, Dir.pwd)
+rescue LoadError => e
+  abort "acemq-consumer: cannot boot the application from #{boot}: #{e.message}\n" \
+        "Run it from the application root, or pass --require."
+end
+
+unless options[:reload]
+  # **Reloading off, eager loading on.** This is the most important line in the
+  # file and it is worth the paragraph.
+  #
+  # With reloading enabled — the development default — Rails installs the
+  # autoloader's interlock into the executor. Two consumer threads inside
+  # `executor.wrap` each hold a *shared* load lock; the moment one of them
+  # touches a constant that has not been loaded, it needs the *exclusive* one,
+  # which cannot be had while the other is still in a handler. The result is not
+  # an exception: it is two handler threads waiting on each other, messages held
+  # unacknowledged, and a consumer that looks alive and reads nothing. It
+  # depends on which constants happen to be warm, so it appears on a cold start
+  # and goes away when the same thing is run again — the worst failure there is.
+  #
+  # Turning reloading off removes the interlock entirely, and eager loading
+  # removes the autoload the interlock existed to guard. Nothing is lost: a
+  # reload cannot reach a running consumer anyway. The subscription holds the
+  # handler *object* the old class produced, so a reload swaps the constant and
+  # leaves the consumer running yesterday's code — see docs/reloading.md.
+  # Restarting this process is the only thing that ever picked up a change.
+  Rails.application.config.enable_reloading = false
+  Rails.application.config.eager_load = true
+end
+
+Rails.application.initialize!
+
+# A consumer process is a foreground process. Its operator reads stdout, a
+# container's log driver reads nothing else, and `Rails.logger` in development
+# writes to log/development.log and nowhere anybody watching this terminal can
+# see. So the lines saying what started, what the topology did and how the drain
+# went are mirrored to stdout.
+#
+# Broadcast rather than replaced: an application that has configured a logger — a
+# JSON formatter, a log drain, a tag — keeps it, and gets these lines too.
+unless options[:quiet] || ENV["RAILS_LOG_TO_STDOUT"]
+  # Unbuffered, because stdout redirected to a file or a pipe is block-buffered
+  # by default: every line this process writes would appear only when it exits,
+  # which is precisely when nobody is still reading. A container's log driver
+  # sees a pipe, so this is the normal case rather than the odd one.
+  $stdout.sync = true
+  console = ActiveSupport::Logger.new($stdout)
+  console.formatter = proc do |_severity, time, _progname, message|
+    "#{time.utc.iso8601} #{message}\n"
+  end
+  AceMQ::Rails.logger = ActiveSupport::BroadcastLogger.new(Rails.logger, console)
+end
+
+# Belt and braces. `eager_load = true` above already did this; the line stays for
+# `--reload`, where nothing else would, and costs nothing when the work is done.
+Rails.application.eager_load!
+
+classes = AceMQ::Rails.consumers
+if options[:queues]
+  wanted = options[:queues].map(&:to_s)
+  classes = classes.select { |klass| wanted.include?(klass.queue) }
+  missing = wanted - classes.map(&:queue)
+  unless missing.empty?
+    abort "acemq-consumer: no consumer reads #{missing.join(", ")}. " \
+          "This application has: #{AceMQ::Rails.consumers.map(&:queue).sort.join(", ")}"
+  end
+end
+
+# The exit code says whether the drain finished. 75 is EX_TEMPFAIL: the process
+# did its job and ran out of time putting itself away, which is a different thing
+# from having failed, and a restart policy should be able to tell them apart.
+exit(AceMQ::Rails::Runner.new.run(classes) ? 0 : 75)

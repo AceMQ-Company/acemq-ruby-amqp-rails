@@ -1,0 +1,99 @@
+# Build and test on every Ruby and Rails line this gem promises to run on.
+#
+# The unit specs need no broker and no Rails application, so they run on the
+# whole matrix in seconds. Anything that needs a broker is tagged :integration
+# and runs in its own job against a service container, once — and that job is
+# also the one that generates a real Rails application and boots it, which is
+# slow and would learn the same thing four times on a matrix.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ruby ${{ matrix.ruby }}, rails ${{ matrix.rails }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.1 is the floor and 7.1 is the Rails floor. Rails 8 needs Ruby 3.2,
+        # which is Rails' constraint rather than one this gem adds, so the
+        # combinations that cannot exist are excluded rather than pretended.
+        ruby: ['3.1', '3.2', '3.3', '3.4']
+        rails: ['7.1', '7.2', '8.0']
+        exclude:
+          - { ruby: '3.1', rails: '8.0' }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        env:
+          RAILS_VERSION: ${{ matrix.rails }}
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+
+      - name: Test
+        env:
+          RAILS_VERSION: ${{ matrix.rails }}
+        run: bundle exec rspec
+
+      - name: Lint
+        run: bundle exec rubocop
+
+  integration:
+    name: against a real broker and a real Rails application
+    runs-on: ubuntu-latest
+    services:
+      broker:
+        image: rabbitmq:4-alpine
+        ports: ['5672:5672']
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      # spec_helper skips everything tagged :integration unless this is set, so
+      # the variable is what turns the job on rather than a second config file.
+      - name: Test against the broker
+        env:
+          ACEMQ_TEST_BROKER: amqp://guest:guest@localhost:5672
+        run: bundle exec rspec
+
+  docs:
+    name: the documentation site builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.1'
+          bundler-cache: true
+
+      - name: Install pandoc
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pandoc
+
+      # The same build the docs workflow runs, on a pull request, so a dead link
+      # or a badge that reached a rendered page is found before it is published.
+      - name: Render the pages
+        run: bundle exec bash .github/scripts/build-docs-site.sh

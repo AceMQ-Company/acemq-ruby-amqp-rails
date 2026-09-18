@@ -1,0 +1,18 @@
+# Bundler's business, not the repository's.
+.bundle/
+vendor/bundle/
+Gemfile.lock
+
+# Build output.
+pkg/
+*.gem
+
+# The documentation site, built by .github/scripts/build-docs-site.sh and
+# published from the workflow rather than from the repository.
+site/
+.yardoc/
+doc/
+
+.rspec_status
+log/
+tmp/
