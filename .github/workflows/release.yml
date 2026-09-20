@@ -159,14 +159,35 @@ jobs:
           gem install --no-document \
             --source https://acemq.org/gems/ --source https://rubygems.org/ \
             "./acemq-amqp-rails-$VERSION.gem"
+
+          # Without Rails loaded. `lib/acemq/rails.rb` requires the Railtie only
+          # `if defined?(::Rails::Railtie)`, so that requiring this gem outside
+          # a Rails process does not drag the framework in. That conditional is
+          # invisible in this repository, where every spec has Rails loaded
+          # already — here it is the assertion.
           ruby -e '
             gem "acemq-amqp-rails"
             require "acemq/rails"
             abort "the gem reports the wrong version" unless AceMQ::Rails::VERSION.is_a?(String)
-            abort "the Railtie did not load" unless defined?(AceMQ::Rails::Railtie)
             abort "Consumer did not load" unless defined?(AceMQ::Rails::Consumer)
-            puts "acemq-amqp-rails #{AceMQ::Rails::VERSION} loads with no development gems present"
+            abort "Runner did not load" unless defined?(AceMQ::Rails::Runner)
+            abort "the Railtie loaded without Rails, so requiring this gem drags the framework in" \
+              if defined?(AceMQ::Rails::Railtie)
+            puts "acemq-amqp-rails #{AceMQ::Rails::VERSION} loads with no development gems present, and without Rails"
           '
+
+          # With Rails loaded, which is the order an application uses: Rails is
+          # required by config/application.rb before Bundler.require reaches
+          # this gem. A Railtie that does not load here is a gem that installs
+          # perfectly and configures nothing at all.
+          ruby -e '
+            gem "acemq-amqp-rails"
+            require "rails"
+            require "acemq/rails"
+            abort "the Railtie did not load with Rails present" unless defined?(AceMQ::Rails::Railtie)
+            puts "the Railtie loads under Rails #{::Rails.version}"
+          '
+
           test -x "$GEM_HOME/bin/acemq-consumer" || {
             echo "::error::acemq-consumer was not installed as an executable"
             exit 1
