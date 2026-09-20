@@ -245,9 +245,11 @@ reversibility: a version pushed to rubygems.org cannot really be withdrawn, wher
 a release here is corrected by deleting a file and re-indexing. Moving to
 rubygems.org later changes nothing for consumers except the source line.
 
-A manual `workflow_dispatch` runs every check and stops short of publishing, so
-the workflow can be tried out — or a failed release re-run — without spending a
-version number.
+`publish` is gated on the ref rather than on the event, so a manual
+`workflow_dispatch` against a branch runs every check and publishes nothing —
+the workflow can be tried out without spending a version number. Dispatched
+against a tag instead, it publishes: that is how a release whose publish step
+failed is re-run without moving the tag.
 
 [RELEASING.md](RELEASING.md) has the steps, the supported matrix, what the
 release-line guard does and when to lift it, and how to check a release really

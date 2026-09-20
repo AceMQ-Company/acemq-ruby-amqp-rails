@@ -103,10 +103,22 @@ for the real-Rails-application group by name.
   same index in the same install. GitHub Pages takes a moment to serve a new
   commit, so this retries for five minutes rather than racing the deploy.
 
-A manual `workflow_dispatch` runs every check against a branch and stops short of
-publishing — `publish` is gated on `refs/tags/v`. That is what makes the workflow
-safe to try out, and it is how a release whose publish step failed is re-run
-without moving a tag.
+### `workflow_dispatch`, and the two things it is for
+
+`publish` is gated on the ref being `refs/tags/v*`, not on the event, so what a
+manual run does depends entirely on what you point it at.
+
+**Against a branch** — `gh workflow run release.yml --ref main` — it runs every
+check and publishes nothing. There is no tag, so there is nothing to check the
+tag against: the version is taken from `AceMQ::Rails::VERSION` and the guard and
+the tag/constant comparison are skipped rather than run against a branch name.
+This is how the workflow is tried out without spending a version number.
+
+**Against a tag** — `gh workflow run release.yml --ref v0.1.0` — the tag checks
+are real and `publish` runs. This is how a release whose publish step failed is
+re-run **without moving or re-cutting the tag**: the tag stays where it is, the
+run starts again from the top, and the feed is rebuilt over whatever is already
+there. It is the reason `workflow_dispatch` is on this workflow at all.
 
 The workflow runs **after** the tag is pushed, because that is when a tag event
 happens. It cannot prevent a bad release, only refuse to publish one — which is
