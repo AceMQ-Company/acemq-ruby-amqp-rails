@@ -20,59 +20,48 @@ module AceMQ
   module Rails
     # What this process can say about its broker.
     #
-    # The library's own {AceMQ::AMQP::Health.of} does the expensive half: it
-    # declares a queue and deletes it again, which is the cheapest thing AMQP
-    # offers that actually proves a round trip, and it reports a stopped consumer
-    # as +:degraded+ rather than +:down+.
+    # The report is the library's, entire: {AceMQ::AMQP::Health.of} declares a
+    # queue and deletes it again — the cheapest thing AMQP offers that actually
+    # proves a round trip — reports a stopped consumer as +:degraded+ rather
+    # than +:down+, and reports a connection the broker has blocked as +:up+
+    # with the broker's own reason written onto it.
     #
-    # This adds the one thing the Ruby library does not model and the Go and Java
-    # ones do: **a blocked connection is healthy, with a reason.**
+    # What this module adds is one Rails-shaped thing and nothing else: the
+    # connection defaults to the process connection, and {check} resolves it
+    # when the check runs rather than when it is built, so a readiness endpoint
+    # assembled at boot does not open a socket on the way up.
     #
-    # RabbitMQ blocks a connection when it is low on memory or disk. Every
-    # publish on it stops, so the temptation is to fail the probe — and failing
-    # it is exactly wrong. A blocked connection is the broker applying back
-    # pressure to a producer that is doing nothing wrong; restarting the producer
-    # into the same pressured broker helps nobody, and doing it to every replica
-    # at once turns a broker under memory pressure into an outage with a
-    # crash-loop on top. The state has to be *visible* — so it is reported as a
-    # detail on an +:up+ report, which shows in a dashboard and can be alerted on
-    # without anything being taken out of rotation.
+    # == Why this used to be longer
     #
-    # It is checked here rather than in the library because bunny is where the
-    # flag lives — +Bunny::Session#blocked?+, set from +connection.blocked+ and
-    # cleared from +connection.unblocked+ — and the library's Health is written
-    # against a transport seam that a test double also satisfies. Reaching
-    # through two layers to a driver is a thing an integration may do and a
-    # portable contract may not.
+    # Until +acemq-amqp+ 0.7.0 the library had no notion of a blocked
+    # connection, so this module synthesised one: it read
+    # +connection.transport.session.blocked?+ — bunny's own flag — and merged a
+    # fixed reason of its own into the library's report. That reached through
+    # the transport seam into the driver, which is a thing an integration may do
+    # and a portable contract may not, and it bought less than it looked like it
+    # did. The reason was a constant, so an operator was told *that* the broker
+    # had blocked the connection and never *why*; and the library's probe still
+    # ran first, where a +queue.declare+ on a blocked connection does not fail
+    # but waits for bunny's continuation timeout, so the report arrived seconds
+    # late and +:down+ for a broker that was up and talking.
+    #
+    # 0.7.0 put +blocked_reason+ on the transport seam, made {Connection#blocked?}
+    # forward it, skipped the round trip while the connection is blocked, and
+    # reports the broker's actual reason after the same fixed wording. All three
+    # halves of the workaround became the library's, which is where a rule every
+    # AceMQ library states in the same words belongs. See docs/health.md.
     module Health
-      # The reason string an operator will read. Fixed wording, because it is
-      # what an alert rule will match on.
-      BLOCKED = "the broker has blocked this connection; publishing is paused"
-
-      # Checks the connection, its consumers, and whether the broker has blocked
-      # it.
+      # The report for a connection, the process one by default.
       #
       # Costs a round trip, so it belongs on a readiness probe with an interval,
-      # not in a request.
+      # not in a request. (Not even that while the connection is blocked: the
+      # library skips the probe and answers from what the broker already said.)
       #
-      # @param connection [AceMQ::AMQP::Connection, nil] the process connection
-      #   by default
+      # @param connection [AceMQ::AMQP::Connection] the process connection by
+      #   default
       # @return [AceMQ::AMQP::Health::Report]
       def self.of(connection = AceMQ::Rails.connection)
-        report = AceMQ::AMQP::Health.of(connection)
-        reason = blocked_reason(connection)
-        return report unless reason
-
-        # The detail is added and the status is not touched. A report that was
-        # already +:degraded+ because a consumer stopped stays +:degraded+ and
-        # says both things; one that was +:up+ stays +:up+ and says why it is
-        # worth looking at.
-        AceMQ::AMQP::Health::Report.new(
-          status: report.status,
-          detail: [report.detail, reason].compact.reject(&:empty?).join("; "),
-          checked_at: report.checked_at,
-          parts: report.parts.merge("blocked" => true)
-        )
+        AceMQ::AMQP::Health.of(connection)
       end
 
       # A check for {AceMQ::AMQP::Health.aggregate}, so this composes into
@@ -84,6 +73,12 @@ module AceMQ
       #     DatabaseCheck.new
       #   )
       #
+      # The library has a +Check+ of its own; this one exists because it takes
+      # the connection *late*. +AceMQ::AMQP::Health::Check.new("acemq",
+      # AceMQ::Rails.connection)+ opens the connection on the line that builds
+      # the check, which in an initializer is a broker dialled during boot —
+      # exactly what lazy connecting is for.
+      #
       # @return [#name, #check]
       def self.check(name = "acemq", connection = nil)
         Check.new(name, connection)
@@ -92,26 +87,6 @@ module AceMQ
       # @api private
       Check = Struct.new(:name, :connection) do
         def check = Health.of(connection || AceMQ::Rails.connection)
-      end
-
-      # Whether the broker has blocked this connection, or nil when it has not
-      # and nil when nothing in the stack can say.
-      #
-      # Deliberately tolerant: a fake transport in a test has no bunny session,
-      # and a health check that raises inside a readiness probe tells an
-      # orchestrator nothing at all.
-      #
-      # @api private
-      def self.blocked_reason(connection)
-        transport = connection.respond_to?(:transport) ? connection.transport : connection
-        return nil unless transport.respond_to?(:session)
-
-        session = transport.session
-        return nil unless session.respond_to?(:blocked?)
-
-        session.blocked? ? BLOCKED : nil
-      rescue StandardError
-        nil
       end
     end
   end

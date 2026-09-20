@@ -163,7 +163,7 @@ class RailsApplication
         # AceMQ. The library comes from AceMQ's own static feed rather than
         # rubygems.org; the integration is this repository, under test.
         source "https://acemq.org/gems" do
-          gem "acemq-amqp", "~> 0.6"
+          gem "acemq-amqp", "~> 0.7.0"
         end
         gem "acemq-amqp-rails", path: #{GEM_ROOT.inspect}
         gem "bunny", "~> 2.23"

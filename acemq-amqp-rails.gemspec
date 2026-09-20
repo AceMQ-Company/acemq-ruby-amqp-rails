@@ -45,11 +45,15 @@ Gem::Specification.new do |spec|
   # because a gemspec cannot name a source for its own dependencies and neither
   # of these is on rubygems.org before 1.0.
   #
-  # Pessimistic on the minor rather than the patch: 0.6 is where publish_all and
-  # max_outstanding_publishes arrived, both of which this configures, and while
-  # the library is 0.x a minor release may change the API this is written
-  # against.
-  spec.add_dependency "acemq-amqp", "~> 0.6"
+  # Three components, because two do not mean what they look like. `~> 0.6` is
+  # pessimistic on the *major*: it expands to `>= 0.6, < 1.0` and so quietly
+  # admitted 0.7.0, a release that changed the Health API this gem is written
+  # against. `~> 0.7.0` expands to `>= 0.7.0, < 0.8.0` — patch fixes arrive on
+  # their own, and the next minor has to be looked at before it ships here.
+  #
+  # The floor is 0.7.0 and not lower: `Connection#blocked?`, `#blocked_reason`
+  # and `#close(timeout:)` are all 0.7.0, and this gem calls every one of them.
+  spec.add_dependency "acemq-amqp", "~> 0.7.0"
 
   # Railtie, config_for, the executor and the error reporter. 7.1 rather than
   # 7.0 because 7.0 stopped getting security fixes in October 2025, and rather

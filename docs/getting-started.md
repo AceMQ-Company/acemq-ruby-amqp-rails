@@ -12,7 +12,7 @@ credential.
 ```ruby
 # Gemfile
 source "https://acemq.org/gems" do
-  gem "acemq-amqp", "~> 0.6"
+  gem "acemq-amqp", "~> 0.7.0"
   gem "acemq-amqp-rails", "~> 0.1"
 end
 

@@ -52,6 +52,29 @@ end
 `AceMQ::Rails.connection=` exists for this. Nothing in the request path notices,
 because everything reaches the connection by name.
 
+### A blocked broker, with no broker
+
+A fake is a blocked connection by answering one more method:
+
+```ruby
+class FakeTransport
+  # Why the broker has blocked this connection, or nil. `AceMQ::AMQP::Health`
+  # asks the transport seam for this; a transport that has never heard of it is
+  # simply not asked.
+  attr_reader :blocked_reason
+end
+
+report = AceMQ::Rails::Health.of(connection_on(FakeTransport.new(blocked_reason: "low on memory")))
+report.up?                          # => true
+report.detail                       # => "...publishing is paused: low on memory"
+report.parts["blocked_reason"]      # => "low on memory"
+```
+
+> Before `acemq-amqp` 0.7.0 this needed a stand-in `Bunny::Session` answering
+> `blocked?`, because the reach was into the driver rather than at the seam. A
+> fake that still has only `session` will now report nothing about blocking —
+> which is the tolerant behaviour, and therefore silent. Rename it.
+
 ```ruby
 it "publishes an event when an order is placed" do
   post orders_path, params: { order_id: "A-1" }

@@ -69,7 +69,7 @@ credential.
 
 ```ruby
 source "https://acemq.org/gems" do
-  gem "acemq-amqp", "~> 0.6"
+  gem "acemq-amqp", "~> 0.7.0"
   gem "acemq-amqp-rails", "~> 0.1"
 end
 
@@ -127,11 +127,13 @@ seam. [docs/not-activejob.md](docs/not-activejob.md).
 ### A blocked connection is healthy, with a reason
 
 RabbitMQ blocks a connection when it is low on memory or disk, and publishing
-stops. The report says so in wording an alert can match, and the **status does not
-change** — restarting a producer into the same pressured broker helps nobody, and
-doing it to every replica at once turns a broker under memory pressure into an
-outage with a crash-loop on top. Same rule as the Spring Boot starter and the Go
-library. [docs/health.md](docs/health.md).
+stops. The report says so in wording an alert can match, names the broker's own
+reason after it, and the **status does not change** — restarting a producer into
+the same pressured broker helps nobody, and doing it to every replica at once
+turns a broker under memory pressure into an outage with a crash-loop on top.
+Same rule as the Spring Boot starter and the Go library, and since `acemq-amqp`
+0.7.0 it is the library's rather than something this gem bolts on.
+[docs/health.md](docs/health.md).
 
 ## Honest limits
 

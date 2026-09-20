@@ -17,20 +17,24 @@ class FakeTransport
 
   attr_reader :published, :declared_queues, :declared_exchanges, :bindings, :subscribed
 
-  def initialize(blocked: false)
+  def initialize(blocked_reason: nil)
     @published = []
     @declared_queues = []
     @declared_exchanges = []
     @bindings = []
     @subscribed = []
     @closed = false
-    @session = FakeSession.new(blocked)
+    @blocked_reason = blocked_reason
   end
 
-  # The bunny session the real transport exposes. Present because
-  # AceMQ::Rails::Health reaches for it, and a fake that lacks it would make
-  # that reach look safe when it is the part worth pinning.
-  attr_reader :session
+  # Why the broker has blocked this connection, or nil.
+  #
+  # One method on the transport seam, which is the whole of what a double needs
+  # to be a blocked broker as far as the library's health check is concerned.
+  # Until acemq-amqp 0.7.0 this had to be a stand-in `Bunny::Session` answering
+  # `blocked?`, because the gem read the flag off the driver rather than off the
+  # seam — a fake pinning a reach through two layers rather than a contract.
+  attr_reader :blocked_reason
 
   def publish(exchange:, routing_key:, body:, content_type: nil, message_id: nil,
               headers: {}, reply_to: nil, mandatory: false,
@@ -69,10 +73,5 @@ class FakeTransport
     def stop = @open = false
     def close = @open = false
     def cancel = @open = false
-  end
-
-  # Only the one method Health reaches for.
-  FakeSession = Struct.new(:blocked) do
-    def blocked? = !!blocked
   end
 end

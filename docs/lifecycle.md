@@ -12,8 +12,8 @@ rather than assumed.
 
 ```
 SIGTERM
-  └─ every consumer is cancelled, on a thread of its own,
-     against one shared deadline (config.acemq.shutdown_timeout)
+  └─ every consumer is cancelled, each given whatever is left of
+     one shared deadline (config.acemq.shutdown_timeout)
        ├─ the broker stops sending
        ├─ handlers already running are waited for
        └─ the channel is closed
@@ -117,21 +117,34 @@ being exact about, because "the drain timed out" sounds worse than it is:
 
 Nothing is silently dropped. What is lost is the *reasons*.
 
-## Cancelled in parallel, against one deadline
+## One deadline for the whole drain
 
-This is the one place the gem does something the library does not, and it is
-worth knowing about.
+`shutdown_timeout` is the budget for *all* the consumers together, not for each
+of them. Eight consumers each given twenty seconds is not a bound on anything:
+it is two and a half minutes, and two and a half minutes into a shutdown
+Kubernetes has long since sent `SIGKILL` — killing every handler mid-flight and
+leaving everything they held unsettled, which is the exact outcome draining
+exists to avoid.
 
-`AceMQ::AMQP::Connection#close` cancels its consumers **one after another**, each
-with its own thirty-second timeout. Eight consumers can therefore ask for four
-minutes inside a thirty-second grace period, and get `SIGKILL`ed at thirty — the
-worst outcome available, because nothing completes and nothing is settled.
+The arithmetic is `AceMQ::AMQP::Connection#close(timeout:)`, and the runner
+passes `shutdown_timeout` to it and keeps none of its own. Each consumer is
+given whatever is left of the deadline, in the order they were started; one
+reached with nothing left is stopped without being waited for.
 
-`AceMQ::Rails::Runner#drain` cancels every consumer on a thread of its own
-against **one shared deadline**, so `shutdown_timeout` means what it says however
-many consumers there are. Four consumers each taking 0.4 seconds to stop take
-about 0.4 seconds together rather than 1.6; that is
-`spec/runner_spec.rb`, "cancels them in parallel against one deadline".
+When the deadline expires with handlers still running, the library raises
+`AceMQ::AMQP::DrainTimeout` — after stopping every consumer and closing the
+socket, because a shutdown that reports a problem having left the socket open is
+a process that will not exit. The runner logs it and exits `75` rather than
+re-raising; its message names each queue that still had deliveries in flight and
+how many, which is what tells you whether to lengthen the grace period or go and
+find the handler that will not return.
+
+> Until `acemq-amqp` 0.7.0 `Connection#close` gave each consumer a fresh
+> thirty-second timeout of its own, and this gem worked around it with a drain
+> that cancelled consumers on threads against one shared deadline. 0.7.0 made the
+> shared deadline the library's, so the workaround went: two answers to "how long
+> may a shutdown take" is one too many, and the library's is the one every AceMQ
+> language now gives.
 
 ## Choosing the deadline
 

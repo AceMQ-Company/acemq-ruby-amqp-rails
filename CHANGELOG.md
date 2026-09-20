@@ -14,6 +14,114 @@ number. Sharing a version would mean one of those two facts had to be lied about
 
 ## [Unreleased]
 
+### Changed
+
+- **Read this first if you alert on a blocked connection: the health detail has
+  changed, and a rule that matched the old string exactly will silently stop
+  matching.** Nothing errors when it does; the alert simply never fires again.
+
+  Measured against a real broker under `set_vm_memory_high_watermark 0.0001`,
+  with a publish on the connection so that RabbitMQ actually sends
+  `connection.blocked`. Before — this gem 0.1.0 on `acemq-amqp` 0.6.0, after
+  **15.0 seconds**:
+
+  ```json
+  {
+    "status": "down",
+    "detail": "the broker did not answer: Timeout::Error; the broker has blocked this connection; publishing is paused",
+    "parts": { "consumers": 0, "consumers_running": 0, "queues": [], "blocked": true }
+  }
+  ```
+
+  After — on `acemq-amqp` 0.7.0, in **0.0 seconds**:
+
+  ```json
+  {
+    "status": "up",
+    "detail": "the broker has blocked this connection; publishing is paused: low on memory",
+    "parts": { "consumers": 0, "consumers_running": 0, "queues": [], "blocked": true, "blocked_reason": "low on memory" }
+  }
+  ```
+
+  Three things to change, in order of how quietly they break:
+
+  1. **A rule comparing `detail` for equality with `the broker has blocked this
+     connection; publishing is paused` must become a prefix or substring test.**
+     The wording up to the colon is still fixed and still the contract; the
+     broker's own reason now follows it. Better still, match
+     `parts.blocked == true`, which is unchanged from 0.1.0 and is the one
+     assertion neither release moved.
+  2. **A readiness endpoint that returned 503 for a blocked broker now returns
+     200.** That is the fix, not a regression — the status was never supposed to
+     change, and 0.1.0 reported `down` anyway because the library's probe ran
+     first and hung. Kubernetes will stop evicting pods during a memory alarm.
+     Anything that paged on "acemq is down" and was in practice firing on memory
+     alarms will go quiet: page on `parts.blocked` instead.
+  3. **A dashboard that timed the check will see `round_trip_ms` disappear from
+     `parts` while the connection is blocked.** Nothing was timed, so nothing is
+     reported. A `queue.declare` on a blocked connection does not fail — the
+     broker has stopped reading the socket, so it waits for bunny's continuation
+     timeout, which is where the fifteen seconds and the `down` above came from.
+     The report is now answered from what the broker already said over that same
+     socket.
+
+  `parts.blocked_reason` is new, and carries the reason on its own for a
+  dashboard that would rather not split a sentence on a colon.
+
+- **The drain is the library's, entire.** `AceMQ::Rails::Runner#drain` passes
+  `shutdown_timeout` to `AceMQ::AMQP::Connection#close(timeout:)` and keeps none
+  of its own arithmetic. 0.1.0 cancelled consumers on threads against one shared
+  deadline because the library gave each one a fresh thirty seconds; 0.7.0 spends
+  one twenty-second budget across the whole drain, so the workaround had nothing
+  left to work around. Two answers to "how long may a shutdown take" is one too
+  many.
+
+  What an operator sees is better for it. A drain that runs out of time is
+  `AceMQ::AMQP::DrainTimeout`, and its message names every queue that still had
+  deliveries in flight and how many — `orders.new (2)` — where the old warning
+  could only say that something had not finished. `acemq-consumer` still exits
+  `75`, and the exception is logged rather than raised out of a signal handler.
+
+- `AceMQ::Rails.disconnect!` takes `timeout:`, for the same deadline. Omitted, it
+  leaves the library's own default, which is what the Railtie's `at_exit` wants.
+  That `at_exit` now rescues: a `DrainTimeout` out of it would print a backtrace
+  after a web process's last log line and change an exit code that was fine.
+
+- `AceMQ::Rails::Runner#drain` closes the connection the runner ran on rather
+  than always the process connection. In the consumer process those are the same
+  object and nothing changes; for a runner handed a connection of its own they
+  were not, and cancelling one connection's consumers while closing another's
+  socket was never two halves of the same shutdown.
+
+### Removed
+
+- `AceMQ::Rails::Health::BLOCKED`. The string it held is byte-identical to
+  `AceMQ::AMQP::Health::BLOCKED`, which is where it lives now. Referencing the
+  old name raises `NameError`, which is the loud half of this release; the quiet
+  half is the detail string above.
+
+- The reach through `connection.transport.session.blocked?` into bunny, and the
+  report this gem synthesised around it. 0.7.0 puts `blocked_reason` on the
+  transport seam, forwards it from `AceMQ::AMQP::Connection#blocked?` and
+  `#blocked_reason`, and writes it onto the report itself — so a test double is a
+  blocked broker by answering one method, and a rule every AceMQ library states
+  in the same words is stated once, in the library.
+  `lib/acemq/rails/health.rb` went from thirty-four lines of code to sixteen;
+  what is left is the default argument and a check that resolves its connection
+  late.
+
+### Requirements
+
+- `acemq-amqp` `~> 0.7.0`, from <https://acemq.org/gems>, raised from `~> 0.6`.
+  Three components rather than two, and the correction is the point: `~> 0.6` is
+  pessimistic on the *major* — it expands to `>= 0.6, < 1.0` and so already
+  admitted 0.7.0, meaning the next `bundle install` would have picked up a
+  library with new Health semantics while this gem still carried its own report.
+  `~> 0.7.0` expands to `>= 0.7.0, < 0.8.0`: patch fixes arrive on their own, and
+  while the library is 0.x a minor gets looked at before it ships here. The floor
+  is load-bearing too — `Connection#blocked?`, `#blocked_reason` and
+  `#close(timeout:)` are all 0.7.0, and this gem calls all three.
+
 ## [0.1.0] - 2026-09-18
 
 First release. Rails integration for `acemq-amqp` 0.6.0.

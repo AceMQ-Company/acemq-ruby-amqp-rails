@@ -216,40 +216,50 @@ RSpec.describe AceMQ::Rails::Runner do
       expect(connection).to be_closed
     end
 
-    it "cancels them in parallel against one deadline" do
-      # The library's own Connection#close cancels consumers in turn, each with
-      # its own thirty-second timeout, so eight of them can ask for four minutes
-      # inside a thirty-second grace period and get SIGKILLed at thirty. This is
-      # the difference, and it is the reason this class has a drain of its own.
-      slow = Struct.new(:delay) do
-        def queue = "slow"
-        def in_flight = 0
-        def running? = false
+    it "spends one deadline on the whole drain, not one on each consumer" do
+      # The arithmetic is the library's since acemq-amqp 0.7.0 — this asserts
+      # that shutdown_timeout is what reaches it, because a drain given a fresh
+      # deadline per consumer is not a bound on anything: eight consumers each
+      # given thirty seconds is four minutes, and four minutes into a shutdown
+      # Kubernetes has long since sent SIGKILL.
+      consumer_class("orders.new")
+      consumer_class("orders.cancelled")
+      runner.start
+      AceMQ::Rails.connection = connection
 
-        def cancel(timeout: 30)
-          sleep([delay, timeout].min)
-        end
-      end
-      runner.instance_variable_set(:@consumers, Array.new(4) { slow.new(0.4) })
+      runner.drain(timeout: 7)
 
-      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      runner.drain(timeout: 5)
-      took = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
-
-      expect(took).to be < 1.2 # four times 0.4 one after another would be 1.6
+      expect(connection.drain_timeouts).to eq([7])
     end
 
     it "reports a drain that ran out of time rather than pretending" do
-      stuck = Struct.new(:_unused) do
-        def queue = "stuck"
-        # A handler that never returned.
-        def in_flight = 1
-        def running? = true
-        def cancel(timeout: 30) = sleep(timeout)
-      end
-      runner.instance_variable_set(:@consumers, [stuck.new(nil)])
+      # DrainTimeout out of the library, a boolean out of here: acemq-consumer
+      # turns it into exit 75, and a backtrace out of a signal handler is not an
+      # exit status.
+      consumer_class("orders.new")
+      runner.start
+      AceMQ::Rails.connection = connection
+      connection.for("orders.new").consumer.in_flight = 2
 
       expect(runner.drain(timeout: 0.2)).to be(false)
+    end
+
+    it "names the queue and the count when it gives up, so a grace period can be fixed" do
+      lines = []
+      logger = Class.new do
+        def initialize(lines) = (@lines = lines)
+        def info(line) = @lines << line
+        def warn(line) = @lines << line
+      end
+      consumer_class("orders.new")
+      runner = described_class.new(connection: connection, logger: logger.new(lines))
+      runner.start
+      AceMQ::Rails.connection = connection
+      connection.for("orders.new").consumer.in_flight = 2
+
+      runner.drain(timeout: 0.2)
+
+      expect(lines.join("\n")).to include("orders.new (2)", "redelivered")
     end
 
     it "is safe when nothing was ever started" do

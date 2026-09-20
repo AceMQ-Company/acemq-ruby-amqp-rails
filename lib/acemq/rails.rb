@@ -149,17 +149,28 @@ module AceMQ
       # @return [Array<Class>]
       def consumers = Registry.runnable
 
-      # Closes the connection, stopping any consumers on it first.
+      # Closes the connection, draining any consumers on it first.
       #
       # Safe to call when nothing was ever opened, which is what makes it usable
       # from an +at_exit+ in a web process that may never have published.
-      def disconnect!
+      #
+      # The connection is let go of before it is closed, and not after: a close
+      # that raises — which since +acemq-amqp+ 0.7.0 it does when the drain ran
+      # out of time — must still leave this process without a connection it
+      # thinks it has.
+      #
+      # @param timeout [Numeric, nil] seconds for the whole drain, every
+      #   consumer together. The library's own default when nil, which is what
+      #   an +at_exit+ wants; the consumer process passes +shutdown_timeout+
+      # @raise [AceMQ::AMQP::DrainTimeout] when handlers were still running when
+      #   the deadline expired. The socket is shut either way
+      def disconnect!(timeout: nil)
         connection = LOCK.synchronize do
           taken = @connection
           @connection = nil
           taken
         end
-        connection&.close
+        timeout ? connection&.close(timeout: timeout) : connection&.close
         nil
       end
     end

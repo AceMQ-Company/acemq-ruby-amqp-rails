@@ -109,27 +109,31 @@ module AceMQ
       #   is synchronous, so a publish in progress is a thread this has to join
       #   or abandon, and the transport close below happens after.
       #
-      # Consumers are cancelled **in parallel, against one shared deadline**.
-      # The library's own +Connection#close+ cancels them in turn, each with its
-      # own thirty-second timeout, so eight consumers can ask for four minutes
-      # inside a thirty-second grace period and get SIGKILLed at thirty.
+      # The drain itself is the library's +Connection#close+, which since
+      # +acemq-amqp+ 0.7.0 spends **one deadline across every consumer** rather
+      # than a fresh one on each. Until then it did not, which is why this class
+      # had a drain of its own: eight consumers each given thirty seconds is
+      # four minutes, and four minutes into a shutdown Kubernetes has long since
+      # sent +SIGKILL+ — killing every handler mid-flight and leaving everything
+      # they held unsettled, the exact outcome draining exists to avoid. One
+      # deadline is the library's answer now, so this passes +shutdown_timeout+
+      # to it and keeps none of the arithmetic.
+      #
+      # What is left here is the shape a process wants rather than the shape a
+      # library wants: a boolean and a log line, where the library raises
+      # {AceMQ::AMQP::DrainTimeout}. +acemq-consumer+ turns that boolean into
+      # exit +0+ or +75+, and an exception out of a signal handler's drain would
+      # be a backtrace where an exit status belongs.
       #
       # @return [Boolean] whether every handler finished in time
       def drain(timeout: config.shutdown_timeout)
         started = monotonic
         log_info "acemq: draining #{@consumers.size} consumer(s), #{timeout}s at most"
 
-        finished = cancel_all(timeout)
-        close_connection
+        finished = close_connection(timeout)
 
         took = (monotonic - started).round(2)
-        if finished
-          log_info "acemq: drained in #{took}s"
-        else
-          log_warn "acemq: the drain did not finish in #{timeout}s; deliveries held by " \
-                   "handlers that had not returned go back to the broker unsettled and " \
-                   "will be redelivered"
-        end
+        log_info "acemq: drained in #{took}s" if finished
         finished
       end
 
@@ -230,31 +234,40 @@ module AceMQ
         connection.apply(topology)
       end
 
-      # Cancelled on threads, against one deadline, rather than one after
-      # another. See {#drain}.
-      def cancel_all(timeout)
-        deadline = monotonic + timeout
-        threads = @consumers.map do |consumer|
-          Thread.new do
-            left = deadline - monotonic
-            consumer.cancel(timeout: left.positive? ? left : 0)
-          rescue StandardError => e
-            log_warn "acemq: #{consumer.queue} did not stop cleanly: #{e.message}"
-          end
+      # Stops every consumer and closes the socket, inside +timeout+.
+      #
+      # {AceMQ::AMQP::DrainTimeout} is logged rather than raised, and its
+      # message is worth the line: it names each queue that still had deliveries
+      # in flight and how many, which is what an operator needs to decide
+      # whether the grace period is too short or one handler is stuck. The old
+      # warning here could only say that *something* had not finished.
+      #
+      # Any other failure is a drain that did not happen, which is a false
+      # +true+ if it is swallowed: the consumers may still be subscribed and the
+      # process is about to exit.
+      #
+      # The connection drained is the one this ran on. In the consumer process
+      # that is the process connection, and going through
+      # {AceMQ::Rails.disconnect!} is what makes +AceMQ::Rails.connection+ stop
+      # handing out a closed socket by name — and what lets the Railtie's
+      # +at_exit+ find nothing left to do. A runner handed a connection of its
+      # own, which is a spec or something embedding this, drains that one:
+      # cancelling one connection's consumers and closing another's socket was
+      # never two halves of the same shutdown.
+      def close_connection(timeout)
+        own = @lock.synchronize { @connection }
+        if own.nil? || (AceMQ::Rails.connected? && own.equal?(AceMQ::Rails.connection))
+          AceMQ::Rails.disconnect!(timeout: timeout)
+        else
+          own.close(timeout: timeout)
         end
-        # A little slack past the deadline: cancel spends it polling in-flight
-        # handlers and then closes a channel, and killing it between those two
-        # leaves a channel open on a connection about to be closed anyway.
-        threads.each { |thread| thread.join(timeout + 1) }
-        still_working = @consumers.sum(&:in_flight)
-        threads.each(&:kill)
-        still_working.zero?
-      end
-
-      def close_connection
-        AceMQ::Rails.disconnect!
+        true
+      rescue AceMQ::AMQP::DrainTimeout => e
+        log_warn "acemq: #{e.message}"
+        false
       rescue StandardError => e
         log_warn "acemq: closing the connection failed: #{e.message}"
+        false
       end
 
       # A consumer process with the development autoloader still on is a process

@@ -105,8 +105,21 @@ module AceMQ
       #
       # The consumer process never reaches this: its runner has already drained
       # and disconnected, and {AceMQ::Rails.disconnect!} does nothing twice.
+      #
+      # Rescued, and the rescue is not laziness. Since `acemq-amqp` 0.7.0 a
+      # close whose drain ran out of time raises
+      # {AceMQ::AMQP::DrainTimeout} — the right answer for a consumer process,
+      # which turns it into an exit status, and the wrong one here: an exception
+      # out of an `at_exit` prints a backtrace after the last log line and
+      # changes the exit code of a web process that was shutting down normally.
+      # The socket is shut before it raises, so there is nothing left to do
+      # about it but say so.
       config.after_initialize do
-        at_exit { AceMQ::Rails.disconnect! }
+        at_exit do
+          AceMQ::Rails.disconnect!
+        rescue StandardError => e
+          AceMQ::Rails.logger&.warn("acemq: closing the connection failed: #{e.message}")
+        end
       end
 
       rake_tasks do

@@ -55,9 +55,6 @@ says which.
 
 ## A blocked connection is healthy, with a reason
 
-This is the rule this gem adds, and it matches the Java starter and the Go
-library.
-
 RabbitMQ **blocks** a connection when it is low on memory or disk. Every publish
 on that connection stops. The temptation is to fail the readiness probe, and
 failing it is exactly wrong: a blocked connection is the broker applying back
@@ -70,24 +67,49 @@ So it is reported as a detail on a report whose status is unchanged:
 ```json
 {
   "status": "up",
-  "detail": "the broker has blocked this connection; publishing is paused",
-  "parts": { "consumers": 2, "consumers_running": 2, "blocked": true }
+  "detail": "the broker has blocked this connection; publishing is paused: low on memory",
+  "parts": {
+    "consumers": 2,
+    "consumers_running": 2,
+    "blocked": true,
+    "blocked_reason": "low on memory"
+  }
 }
 ```
 
-Visible on a dashboard, matchable by an alert rule — the wording is fixed for
-exactly that reason — and not a reason for anything to be taken out of rotation.
-A report that was already `degraded` stays `degraded` and says both things.
+Visible on a dashboard, matchable by an alert rule — the wording up to the colon
+is fixed for exactly that reason — and not a reason for anything to be taken out
+of rotation. A report that was already `degraded` stays `degraded` and says both
+things.
 
-**Where it is checked, and why here.** The Ruby library's own `Health` has no
-notion of a blocked connection: the flag lives on bunny's session
-(`Bunny::Session#blocked?`, set from `connection.blocked` and cleared from
-`connection.unblocked`), and the library's health check is written against a
-transport seam that a hand-written double also satisfies. Reaching through two
-layers to a driver is a thing an integration may do and a portable contract may
-not. It is tolerant about it: a transport that cannot be asked simply says
-nothing, because a health check that raised inside a readiness probe would be
-worse than one that under-reports.
+**The reason after the colon is the broker's own**, as it arrived on
+`connection.blocked`: `low on memory`, `low on disk`, or whatever a future
+RabbitMQ says. It is the difference between paging someone and telling them which
+alarm to go and clear. `parts.blocked_reason` has it on its own for a dashboard
+that would rather not parse a sentence.
+
+**No round trip is spent while the connection is blocked.** The check is built on
+a `queue.declare`, and a blocked connection is one the broker has stopped
+reading — so the declare does not fail, it *hangs*, until bunny's continuation
+timeout gives up seconds later. The report is answered from what the broker
+already said over the same socket, which is livelier proof than a declare;
+`round_trip_ms` is absent from the parts, because nothing was timed.
+
+**Where it is checked.** In `acemq-amqp` itself, since 0.7.0 — `blocked_reason`
+is on the transport seam, `AceMQ::AMQP::Connection#blocked?` and
+`#blocked_reason` forward it, and `AceMQ::AMQP::Health.of` writes it onto the
+report. It is tolerant: a transport that has never heard of the method simply
+says nothing, because a health check that raised inside a readiness probe would
+be worse than one that under-reports.
+
+Until 0.7.0 the library had no notion of a blocked connection and this gem
+supplied one, reading `connection.transport.session.blocked?` — bunny's own flag
+— and merging a reason of its own into the report. That is history now, and it is
+worth saying what it cost while it lasted: the reason was a constant, so an
+operator learned *that* the broker had blocked the connection and never *why*;
+and the library's probe still ran first, so against a genuinely blocked broker
+the report arrived seconds late and said `down`. Both halves are fixed by the
+library having the rule rather than an integration bolting it on.
 
 ## Liveness is not readiness
 
