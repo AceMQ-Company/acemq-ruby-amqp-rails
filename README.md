@@ -14,10 +14,12 @@ one connection, configured from `config/acemq.yml`; consumers written as classes
 and run in a process of their own; a health check that composes into whatever
 readiness endpoint the application already has.
 
-> **Status: `0.1.0`, unreleased.** 97 examples — unit specs against a fake
-> transport, integration specs against RabbitMQ 4, and a spec that generates a
-> real Rails application, boots it under Puma, publishes through an HTTP request,
-> consumes in a second process and shuts it down with `SIGTERM`.
+> **Status: `0.1.0`, prepared and not yet tagged.** 102 examples — unit specs
+> against a fake transport, integration specs against RabbitMQ 4, and a spec that
+> generates a real Rails application, boots it under Puma, publishes through an
+> HTTP request, consumes in a second process and shuts it down with `SIGTERM`.
+> Tagging publishes it to <https://acemq.org/gems>; see
+> [RELEASING.md](RELEASING.md).
 
 ```yaml
 # config/acemq.yml
@@ -216,6 +218,40 @@ ACEMQ_TEST_BROKER=amqp://guest:guest@localhost:5672 bundle exec rspec
 The second `rspec` adds the broker specs and the real-Rails-application spec,
 which generates an application, resolves its bundle and boots it. It takes about
 a minute.
+
+### Releasing
+
+`release.yml` runs on an annotated `v*` tag. It checks the tag is a `0.1.x`
+version and that `AceMQ::Rails::VERSION` agrees with it, runs the specs and
+RuboCop, builds the gem, checks the built gem carries what the gemspec's globs
+were supposed to include, and installs it into a clean `GEM_HOME` with only its
+declared dependencies — which is the one thing the specs cannot catch, since they
+satisfy every `require` from this repository's own Gemfile, `rails` and `bunny`
+included. It then runs the whole Ruby × Rails matrix and the broker and
+real-Rails-application specs against the tag, and only afterwards publishes.
+**The version comes from the working tree, not from the tag**: a tag whose
+version `lib/acemq/rails/version.rb` does not declare fails the run before
+anything is built, so the constant is bumped in the commit the tag points at.
+
+The gem goes to the **AceMQ gem feed** — `AceMQ-Company/gems`, served as a static
+index at <https://acemq.org/gems/> beside `acemq-amqp` itself — rather than to
+rubygems.org, and not by trusted publishing. The job writes with
+`GEMS_REPO_DEPLOY_KEY`, an SSH deploy key carrying write access to that one
+repository and to nothing else in the organisation; it rebuilds the index over
+everything already published rather than over this release alone, and then
+installs the gem back out of the feed with `acemq-amqp` resolving beside it,
+because a feed is only real if a client can resolve from it. That is about
+reversibility: a version pushed to rubygems.org cannot really be withdrawn, where
+a release here is corrected by deleting a file and re-indexing. Moving to
+rubygems.org later changes nothing for consumers except the source line.
+
+A manual `workflow_dispatch` runs every check and stops short of publishing, so
+the workflow can be tried out — or a failed release re-run — without spending a
+version number.
+
+[RELEASING.md](RELEASING.md) has the steps, the supported matrix, what the
+release-line guard does and when to lift it, and how to check a release really
+published.
 
 ## Licence
 

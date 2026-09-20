@@ -1,0 +1,390 @@
+# Verify a tag, build the gem, and add it to the AceMQ gem feed.
+#
+# # Where this publishes, and why not rubygems.org
+#
+# The gem goes to AceMQ-Company/gems, a static feed served at
+# https://acemq.org/gems/, beside acemq-amqp itself, the Maven repository and
+# the NuGet feed. It does not go to rubygems.org.
+#
+# That is deliberate and it is about reversibility. A gem name on rubygems.org
+# is permanent and a pushed version cannot really be withdrawn — a yank hides it
+# from the index but does not free the version number and does not remove it
+# from anybody who already has it. Publishing here first means a release can be
+# corrected by deleting a file and re-indexing, which is the property worth
+# having while this gem is pre-1.0. Moving to rubygems.org later changes nothing
+# for consumers except the source line.
+#
+# # Publishing credentials
+#
+# GEMS_REPO_DEPLOY_KEY: an SSH deploy key with write access to
+# AceMQ-Company/gems and to nothing else in the organisation. A deploy key
+# rather than a token because a token carries its owner's reach across every
+# repository they can see, and this job needs exactly one. It is the same secret
+# name the library uses, and it has to exist in *this* repository too — secrets
+# are not shared between repositories, and an empty `ssh-key` makes the checkout
+# fall back to a token that cannot write, which fails at the push rather than at
+# the checkout. The "is the key present" step below turns that into an error
+# before anything is built.
+#
+# # What this workflow does that the library's does not
+#
+# It boots a real Rails application, on every Rails line this gem promises, and
+# it does that on a tag as well as on a pull request. A Rails integration that
+# passes its unit specs and cannot be required inside `rails new` has shipped
+# nothing, and the matrix is the only thing that knows whether 7.1 still works.
+#
+# # No notification
+#
+# This workflow tells nobody. A release that is not on a public registry is not
+# news to announce, and the run itself is the record.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          # The floor this gem promises, not the newest. Releasing something
+          # that only works on a newer Ruby would break the promise in the
+          # gemspec.
+          ruby-version: '3.1'
+          bundler-cache: true
+
+      - name: Check the tag is a 0.1.x version
+        # The line stays on 0.1.x until that is deliberately changed. Without
+        # this a mistyped tag becomes a version number that cannot be reused —
+        # and a gem in a feed somebody has already resolved against is not
+        # recallable in any way that helps them.
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          version="${REF#v}"
+          case "$version" in
+            0.1.*) echo "releasing $version" ;;
+            *)
+              echo "::error::this gem releases 0.1.x only; '$version' needs the guard in release.yml lifted first"
+              exit 1
+              ;;
+          esac
+
+      - name: Check the version constant matches the tag
+        # A gem whose VERSION disagrees with its tag is a gem nobody can trace
+        # back to a commit, and `gem install acemq-amqp-rails -v 0.1.1` would
+        # install something calling itself something else. The version comes
+        # from the working tree, so the constant is bumped in the commit the tag
+        # points at.
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          version="${REF#v}"
+          declared=$(ruby -Ilib -racemq/rails/version -e 'print AceMQ::Rails::VERSION')
+          if [ "$declared" != "$version" ]; then
+            echo "::error::the tag is $version but AceMQ::Rails::VERSION is $declared"
+            exit 1
+          fi
+          echo "AceMQ::Rails::VERSION is $declared"
+
+      - name: Test and lint
+        run: |
+          bundle exec rspec
+          bundle exec rubocop
+
+      - name: Build the gem
+        run: gem build acemq-amqp-rails.gemspec
+
+      - name: Check the gem carries what it says it does
+        # gemspec.files is a Dir glob, so a new file under lib/ is included by
+        # luck rather than by decision, and `exe/*` plus `lib/**/*.rake` are two
+        # more globs whose contents nobody re-reads. A gem missing its Railtie
+        # installs perfectly and does nothing at all in somebody else's
+        # application; one missing the rake file breaks `rake acemq:consume`
+        # with a message about an undefined task.
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          version="${REF#v}"
+          contents=$(tar -xOf "acemq-amqp-rails-$version.gem" data.tar.gz | tar -tzf -)
+          echo "$contents"
+          for required in LICENSE README.md CHANGELOG.md exe/acemq-consumer \
+                          lib/acemq-amqp-rails.rb lib/acemq/rails.rb \
+                          lib/acemq/rails/railtie.rb lib/acemq/rails/consumer.rb \
+                          lib/acemq/rails/registry.rb lib/acemq/rails/runner.rb \
+                          lib/acemq/rails/configuration.rb lib/acemq/rails/health.rb \
+                          lib/acemq/rails/topology_builder.rb \
+                          lib/acemq/rails/version.rb lib/acemq/rails/tasks.rake; do
+            if ! printf '%s\n' "$contents" | grep -qx "$required"; then
+              echo "::error::the built gem does not contain $required"
+              exit 1
+            fi
+          done
+
+      - name: Check it installs and loads on its own
+        # Installed into a clean prefix with railties and nothing else, because
+        # the one thing the specs cannot catch is a require this repository
+        # satisfies from its own Gemfile. `rails`, `rspec` and `bunny` are all
+        # present here in development and none of them is a dependency of the
+        # gem, so a stray `require "rails"` or `require "bunny"` would pass
+        # every spec and fail in an application that has only what the gemspec
+        # asks for.
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          version="${REF#v}"
+          export GEM_HOME="$RUNNER_TEMP/clean"
+          gem install --no-document \
+            --source https://acemq.org/gems/ --source https://rubygems.org/ \
+            "./acemq-amqp-rails-$version.gem"
+          ruby -e '
+            gem "acemq-amqp-rails"
+            require "acemq/rails"
+            abort "the gem reports the wrong version" unless AceMQ::Rails::VERSION.is_a?(String)
+            abort "the Railtie did not load" unless defined?(AceMQ::Rails::Railtie)
+            abort "Consumer did not load" unless defined?(AceMQ::Rails::Consumer)
+            puts "acemq-amqp-rails #{AceMQ::Rails::VERSION} loads with no development gems present"
+          '
+          test -x "$GEM_HOME/bin/acemq-consumer" || {
+            echo "::error::acemq-consumer was not installed as an executable"
+            exit 1
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gem
+          path: '*.gem'
+          if-no-files-found: error
+
+  matrix:
+    # Every Ruby and Rails line the gemspec promises, on the tag itself. CI
+    # proves this on a pull request; a tag can point at any commit, so it is
+    # proven again here rather than assumed from a green branch.
+    name: ruby ${{ matrix.ruby }}, rails ${{ matrix.rails }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ['3.1', '3.2', '3.3', '3.4']
+        rails: ['7.1', '7.2', '8.0']
+        exclude:
+          # Rails 8 needs Ruby 3.2. That is Rails' constraint rather than one
+          # this gem adds, so the combination that cannot exist is excluded
+          # rather than pretended.
+          - { ruby: '3.1', rails: '8.0' }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        env:
+          RAILS_VERSION: ${{ matrix.rails }}
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+
+      - name: Test
+        env:
+          RAILS_VERSION: ${{ matrix.rails }}
+        run: bundle exec rspec
+
+  integration:
+    name: against a real broker and a real Rails application
+    runs-on: ubuntu-latest
+    services:
+      broker:
+        image: rabbitmq:4-alpine
+        ports: ['5672:5672']
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Test against the broker
+        env:
+          ACEMQ_TEST_BROKER: amqp://guest:guest@localhost:5672
+        run: |
+          set -o pipefail
+          bundle exec rspec --tag integration --format documentation \
+            2>&1 | tee "$RUNNER_TEMP/broker-specs.log"
+
+      - name: Check nothing skipped
+        # spec_helper excludes every integration example when ACEMQ_TEST_BROKER
+        # is unset, and an unset variable looks exactly like a passing run. A
+        # release that silently tested nothing against a broker — and never
+        # booted the real Rails application, which is tagged :integration too —
+        # is the failure worth spending five lines on.
+        run: |
+          log="$RUNNER_TEMP/broker-specs.log"
+          if grep -qE '^[0-9]+ examples, 0 failures, [0-9]+ pending' "$log"; then
+            echo "::warning::some examples were pending"
+          fi
+          examples=$(grep -oE '^[0-9]+ examples' "$log" | grep -oE '[0-9]+' | tail -1)
+          if [ -z "$examples" ] || [ "$examples" -lt 15 ]; then
+            echo "::error::only ${examples:-0} integration examples ran; expected at least 15"
+            exit 1
+          fi
+          if ! grep -q 'a real Rails application' "$log"; then
+            echo "::error::the real-Rails-application spec did not run"
+            exit 1
+          fi
+          echo "$examples integration examples ran"
+
+  publish:
+    needs: [verify, matrix, integration]
+    # Tags only. A manual dispatch runs every check against a branch and stops
+    # short of publishing, which is what makes this workflow safe to try out —
+    # and what let a failed release be re-run today without moving a tag.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: gems
+      url: https://acemq.org/gems/
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the publishing key is present
+        # An unset secret is an empty string, and actions/checkout treats an
+        # empty ssh-key as "use the default token" — which can read a public
+        # repository and cannot write to it. The run would then get all the way
+        # to `git push` before failing, having already built and indexed a gem.
+        # Fail here instead, where nothing has happened yet.
+        env:
+          DEPLOY_KEY: ${{ secrets.GEMS_REPO_DEPLOY_KEY }}
+        run: |
+          if [ -z "$DEPLOY_KEY" ]; then
+            echo "::error::GEMS_REPO_DEPLOY_KEY is not set in this repository; it needs write access to AceMQ-Company/gems"
+            exit 1
+          fi
+          echo "GEMS_REPO_DEPLOY_KEY is present"
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          # 3.1 is the floor the gem supports and the right thing to build on,
+          # but the RubyGems that ships with it writes only the classic index --
+          # no versions, no info/, no names. A current client reads the compact
+          # index first, so a feed built by the old generator looks empty to it
+          # while looking perfectly correct to the generator that made it. That
+          # is how the library's 0.2.0 went out resolvable by CI's Ruby and not
+          # by a developer's. `rubygems: latest` upgrades the tool without
+          # moving off the floor.
+          ruby-version: '3.1'
+          rubygems: latest
+          bundler-cache: true
+
+      - name: Work out the version
+        id: version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG_NAME#v}"
+          declared=$(ruby -Ilib -racemq/rails/version -e 'print AceMQ::Rails::VERSION')
+          if [ "$VERSION" != "$declared" ]; then
+            echo "::error::the tag is $VERSION but AceMQ::Rails::VERSION is $declared"
+            exit 1
+          fi
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build the gem
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          gem build acemq-amqp-rails.gemspec -o "$RUNNER_TEMP/acemq-amqp-rails-$VERSION.gem"
+
+      - name: Check the built gem declares the version it says it does
+        # `gem build` reads the constant, but the file that reaches the feed is
+        # the one that matters, and it is the only artifact anybody installs.
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          built=$(ruby -rrubygems/package \
+            -e 'print Gem::Package.new(ARGV[0]).spec.version.to_s' \
+            "$RUNNER_TEMP/acemq-amqp-rails-$VERSION.gem")
+          if [ "$built" != "$VERSION" ]; then
+            echo "::error::the built gem is version $built, not $VERSION"
+            exit 1
+          fi
+          echo "the built gem is acemq-amqp-rails $built"
+
+      - name: Check out the gem feed
+        uses: actions/checkout@v4
+        with:
+          repository: AceMQ-Company/gems
+          # A deploy key rather than a token: write access to that repository
+          # alone, and to nothing else in the organisation.
+          ssh-key: ${{ secrets.GEMS_REPO_DEPLOY_KEY }}
+          path: gem-feed
+
+      - name: Add the gem to it
+        # Cloned first, then added to, so the index is regenerated over
+        # everything already published — acemq-amqp included. Building it from
+        # this release alone would leave every other gem on disk and invisible
+        # to any client, which for a feed this gem's own dependency lives in
+        # would break the dependency as well as the release.
+        working-directory: gem-feed
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: ./scripts/publish.sh "$RUNNER_TEMP/acemq-amqp-rails-$VERSION.gem"
+
+      # `published` is the line between "nothing happened" and "something is out
+      # there". Everything before this leaves the feed untouched; everything
+      # after operates on a version consumers can already resolve.
+      - name: Commit and push
+        working-directory: gem-feed
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          git config user.name "acemq-release"
+          git config user.email "noreply@acemq.org"
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "nothing to publish; $VERSION may already be in the feed"
+            exit 0
+          fi
+          git add -A
+          git commit -m "Publish acemq-amqp-rails $VERSION"
+          git push origin HEAD
+
+      - name: Install it back out of the feed
+        # The feed is only real if a client can resolve from it, and this gem
+        # asks more of it than the library does: it has a dependency,
+        # `acemq-amqp ~> 0.7.0`, which lives in the same feed, so this also
+        # proves the index still resolves what was already published. railties
+        # comes from rubygems.org, which is why both sources are named.
+        # GitHub Pages takes a moment to serve a new commit, so this retries
+        # rather than racing the deploy.
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          # The same RubyGems a consumer on a current Ruby has, so this
+          # resolves through the compact index rather than the classic one.
+          gem update --system --silent
+          export GEM_HOME="$RUNNER_TEMP/verify-gems"
+          for attempt in $(seq 1 20); do
+            if gem install acemq-amqp-rails -v "$VERSION" \
+                 --source https://acemq.org/gems/ --source https://rubygems.org/ \
+                 --no-document >/dev/null 2>&1; then
+              ruby -e 'gem "acemq-amqp-rails"; require "acemq/rails"; puts AceMQ::Rails::VERSION' \
+                | grep -qx "$VERSION"
+              echo "installed acemq-amqp-rails $VERSION from the feed, with acemq-amqp resolved beside it"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::the feed did not serve acemq-amqp-rails $VERSION within five minutes"
+          exit 1
