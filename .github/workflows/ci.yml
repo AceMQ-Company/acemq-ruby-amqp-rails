@@ -11,6 +11,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # acemq-amqp can release without a commit landing here, and a constraint that
+  # has stopped admitting the current release looks exactly like one that still
+  # does until somebody checks. A timer is the only thing that looks.
+  schedule:
+    - cron: '59 6 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -97,3 +102,93 @@ jobs:
       # or a badge that reached a rendered page is found before it is published.
       - name: Render the pages
         run: bundle exec bash .github/scripts/build-docs-site.sh
+
+  tracks-the-release:
+    name: the constraint still admits the newest release
+    runs-on: ubuntu-latest
+    # A job of its own rather than a step in `test`, deliberately -- the same
+    # argument the examples repositories make. A dependency that has fallen out of
+    # step and a broken gem are different findings and both are worth having: the
+    # specs above still run and the generated Rails application still boots
+    # whatever this job concludes, so a red X here reads as "the declared
+    # dependency has fallen behind the library", never as "we have no idea whether
+    # any of this works".
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          # No bundle install: nothing here needs the gems, only RubyGems' own
+          # version arithmetic, which ships with Ruby.
+          bundler-cache: false
+
+      - name: The declared constraint admits the newest release
+        # A constraint is a different question from an exact pin, and forcing the
+        # two into the same check would make this job wrong.
+        #
+        # An exact pin names one version, so it goes stale the instant a newer one
+        # is released and equality is the whole question. This gemspec does not
+        # pin: `~> X.Y` names a *set*, and a set does not go stale because a
+        # release appeared -- that is what the pessimistic operator is for.
+        # Demanding it be rewritten on every patch release would just be an exact
+        # pin with extra punctuation, and it would be a lie to every application
+        # that installs this gem, because the constraint is also what Bundler hands
+        # them.
+        #
+        # What a constraint *can* do is stop admitting the current release. `~> 0.7`
+        # is correct through all of 0.7.z and becomes a wall the morning 0.8.0
+        # ships. Nothing here breaks at that moment, which is the danger: Bundler
+        # keeps resolving 0.7.z, this workflow keeps passing, and it keeps proving
+        # something about a version the feed no longer serves as current -- while
+        # holding every downstream application back to it as well. So the assertion
+        # is membership rather than equality: does the declared requirement admit
+        # the newest release?
+        #
+        # Membership is also what makes the jobs above worth reading. Bundler
+        # resolves the newest version a constraint admits, so once the newest
+        # release is inside it, the specs really are running against it.
+        #
+        # Both sides are parsed rather than pattern-matched. The gemspec is loaded
+        # and the dependency found by name, so reformatting it cannot make this
+        # check quietly stop finding anything, and `~>` is evaluated by
+        # Gem::Requirement itself -- the same arithmetic Bundler does, rather than
+        # a shell guess at what the operator means. The tags come from the library
+        # repository rather than the gem feed because git ls-remote needs no token
+        # on a scheduled run.
+        run: |
+          newest=$(git ls-remote --tags https://github.com/AceMQ-Company/acemq-ruby-amqp \
+                     | grep -v '\^{}' | sed 's#.*refs/tags/##' \
+                     | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' \
+                     | sort -V | tail -1)
+
+          # An empty answer means the listing failed or the tag naming changed,
+          # and comparing against nothing would pass silently forever.
+          if [ -z "$newest" ]; then
+            echo "::error::no release tags found on acemq-ruby-amqp, so the constraint could not be checked"
+            exit 1
+          fi
+
+          ruby -e '
+            newest   = Gem::Version.new(ARGV[0])
+            path     = Dir["*.gemspec"].first
+            spec     = Gem::Specification.load(path)
+            dep      = spec && spec.dependencies.find { |d| d.name == "acemq-amqp" }
+
+            if dep.nil?
+              puts "::error::#{path || "the gemspec"} declares no dependency on " \
+                   "acemq-amqp, so the constraint could not be checked"
+              exit 1
+            end
+
+            unless dep.requirement.satisfied_by?(newest)
+              puts "::error::#{path} declares acemq-amqp \"#{dep.requirement}\" but the " \
+                   "newest release is #{newest}, which that constraint does not admit. " \
+                   "Edit the add_dependency line for acemq-amqp in #{path} so it covers " \
+                   "#{newest} -- until then Bundler resolves an older release here and in " \
+                   "every application that installs this gem."
+              exit 1
+            end
+
+            puts "declared acemq-amqp \"#{dep.requirement}\", which admits #{newest}, the newest release"
+          ' "$newest"
