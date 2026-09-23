@@ -33,10 +33,16 @@
 # passes its unit specs and cannot be required inside `rails new` has shipped
 # nothing, and the matrix is the only thing that knows whether 7.1 still works.
 #
-# # No notification
+# # What a finished release leaves behind
 #
-# This workflow tells nobody. A release that is not on a public registry is not
-# news to announce, and the run itself is the record.
+# Three things, and until today only the first of them: the gem in the feed, a
+# release on this repository's releases page, and a line in the delivery
+# channel. The argument for leaving the last two out was that a release off a
+# public registry is not news — but a gem feed is a thing clients read and
+# people do not, so anybody wanting to know what version this gem is on comes to
+# the releases page, and an empty page answers that question wrongly rather than
+# not at all. Every other repository in the family writes both now; this was one
+# of the last two that did not.
 name: release
 
 on:
@@ -290,6 +296,15 @@ jobs:
     environment:
       name: gems
       url: https://acemq.org/gems/
+    outputs:
+      # Whether anything reached the feed. False for every failure before the
+      # push, which is most of them, and the line both the release page and the
+      # notification key off — neither may describe a version no client can
+      # resolve.
+      published: ${{ steps.push.outputs.published }}
+      # Worked out inside this job rather than in `verify`, so it is republished
+      # here for the jobs that come after.
+      version: ${{ steps.version.outputs.value }}
     steps:
       - uses: actions/checkout@v4
 
@@ -356,6 +371,16 @@ jobs:
           fi
           echo "the built gem is acemq-amqp-rails $built"
 
+      - uses: actions/upload-artifact@v4
+        # This gem, not the one `verify` built. They are built from the same
+        # commit, but only this one is the file that goes into the feed, and the
+        # release page is meant to carry what the feed carries rather than
+        # something equivalent to it.
+        with:
+          name: published-gem
+          path: ${{ runner.temp }}/acemq-amqp-rails-${{ steps.version.outputs.value }}.gem
+          if-no-files-found: error
+
       - name: Check out the gem feed
         uses: actions/checkout@v4
         with:
@@ -380,6 +405,7 @@ jobs:
       # there". Everything before this leaves the feed untouched; everything
       # after operates on a version consumers can already resolve.
       - name: Commit and push
+        id: push
         working-directory: gem-feed
         env:
           VERSION: ${{ steps.version.outputs.value }}
@@ -388,11 +414,17 @@ jobs:
           git config user.email "noreply@acemq.org"
           if [ -z "$(git status --porcelain)" ]; then
             echo "nothing to publish; $VERSION may already be in the feed"
+            # Already there, so as far as anybody installing this gem is
+            # concerned it is published, and the jobs after this one should do
+            # what they would have done on a first run. Saying otherwise leaves
+            # a re-run of a good release with no page and no announcement.
+            echo "published=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git add -A
           git commit -m "Publish acemq-amqp-rails $VERSION"
           git push origin HEAD
+          echo "published=true" >> "$GITHUB_OUTPUT"
 
       - name: Install it back out of the feed
         # The feed is only real if a client can resolve from it, and this gem
@@ -429,3 +461,123 @@ jobs:
           done
           echo "::error::the feed did not serve acemq-amqp-rails $VERSION within twenty minutes"
           exit 1
+
+  # The releases page, which nothing has written until now. The feed is
+  # machine-readable and nothing else: `gem list --remote` is not how anybody
+  # finds out what version a gem is on, and with no release page the answer
+  # lived only in a changelog on a branch. A page that says nothing is read as
+  # "nothing has shipped", which for a gem that has shipped is simply wrong.
+  #
+  # Keyed on the push rather than on the job having got this far, because a
+  # release page naming a version the feed never received sends a reader to a
+  # `gem install` that resolves nothing, and RubyGems will blame their --source
+  # for it rather than us.
+  #
+  # The gem is attached, and it is the one the publish job put in the feed
+  # rather than a rebuild. It earns its place because a .gem is self-describing:
+  # the specification inside it names railties and acemq-amqp, and RubyGems
+  # reads that before it installs anything, so handing somebody this file with
+  # no sources configured gets them a clear refusal naming what is missing. That
+  # is the bar an attachment has to clear, and it is the reason the Java
+  # repositories in this family attach nothing — a jar carries no such record,
+  # so it installs perfectly and then fails at the first call.
+  announce:
+    needs: [publish]
+    if: needs.publish.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: published-gem
+          path: gem
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          # `|| echo` rather than a failure. Re-running a release that already
+          # worked is an ordinary thing to do — a dispatch after the feed took
+          # too long to serve is the usual reason — and the page already being
+          # there is the outcome this step was after.
+          gh release create "v$VERSION" gem/*.gem \
+            --title "v$VERSION" \
+            --notes "AceMQ for Rails $VERSION.
+
+          \`\`\`bash
+          gem install acemq-amqp-rails -v $VERSION \\
+            --source https://acemq.org/gems/ --source https://rubygems.org/
+          \`\`\`
+
+          \`\`\`ruby
+          # Gemfile
+          source \"https://rubygems.org\"
+          source \"https://acemq.org/gems\" do
+            gem \"acemq-amqp-rails\", \"~> $VERSION\"
+          end
+          \`\`\`
+
+          Both sources, because this gem sits between them: acemq-amqp comes from the AceMQ feed, railties from rubygems.org. The AceMQ feed is a static compact index served over GitHub Pages, so it needs no credentials.
+
+          The .gem attached below is the same file the feed serves, for an install that cannot reach it. It still declares its dependency on acemq-amqp, so installing from the file alone needs that gem resolvable from somewhere.
+
+          Documentation: https://acemq.org/acemq-ruby-amqp-rails/
+          Changelog: https://github.com/AceMQ-Company/acemq-ruby-amqp-rails/blob/v$VERSION/CHANGELOG.md" \
+            || echo "release v$VERSION already exists"
+
+  # Announced only when something actually reached the feed.
+  #
+  # A tag whose build fails has released nothing: the feed is untouched, no
+  # version exists, and nobody can install anything they could not install
+  # before. Announcing that as a failure puts a red message in a channel about
+  # an event that did not happen, and a channel that cries wolf is one people
+  # stop reading — which costs us the announcement that matters. The failure is
+  # not hidden; it is a red tag build in Actions, watched by whoever pushed the
+  # tag.
+  #
+  # What does get announced is everything from the push onwards, failures
+  # included. A version that is installable but did not finish its release is
+  # the genuinely awkward state, and that is worth interrupting somebody for.
+  notify:
+    needs: [publish, announce]
+    if: always() && needs.publish.outputs.published == 'true'
+    uses: AceMQ-Company/acemq-java-amqp/.github/workflows/slack-notify.yml@main
+    with:
+      # Both halves, because a gem anybody can install with no page describing
+      # it is exactly the half-shipped state this exists to surface.
+      status: ${{ (needs.publish.result == 'success' && needs.announce.result == 'success') && 'success' || 'failure' }}
+      title: >-
+        ${{ (needs.publish.result == 'success' && needs.announce.result == 'success')
+            && format('AceMQ for Rails {0} released', github.ref_name)
+            || format('AceMQ for Rails {0} is published but the release did not finish', github.ref_name) }}
+      message: >-
+        ${{ (needs.publish.result == 'success' && needs.announce.result == 'success')
+            && 'On the AceMQ gem feed, installing back out of it with acemq-amqp resolved beside it, and on the releases page with the gem attached.'
+            || 'The gem is in the feed and clients can resolve it, but a later step did not pass. Most often that is GitHub Pages taking longer than the verify step waits, or the releases page not being written. Check the run before doing anything to the tag.' }}
+      # Roadworks rather than a red dot, and the title says "published but the
+      # release did not finish" rather than "failed". By the time this runs the
+      # gem is in the feed: the release is out, and what did not finish is the
+      # checking. Calling that a failure sends somebody looking for a broken gem
+      # that does not exist.
+      #
+      # Both branches name an emoji. Leaving the success branch empty to fall
+      # back on the status-derived tick does not work: in GitHub's expression
+      # language `a && '' || b` yields b, because an empty string is falsy, so
+      # every successful release would be announced with roadworks.
+      icon: ${{ (needs.publish.result == 'success' && needs.announce.result == 'success') && ':white_check_mark:' || ':construction:' }}
+      url: https://acemq.org/gems/
+    secrets:
+      # Explicit, not `inherit`. A reusable workflow in another repository does
+      # not receive inherited secrets, which elsewhere produced a notify job
+      # that went green while sending nothing at all.
+      #
+      # This repository has no SLACK_DELIVERY_WEBHOOK today. The reusable
+      # workflow is built for that: where the secret is absent it says so and
+      # succeeds, because a missing webhook must never fail a release that
+      # worked. Adding the secret is all that stands between this and a line in
+      # the channel.
+      SLACK_DELIVERY_WEBHOOK: ${{ secrets.SLACK_DELIVERY_WEBHOOK }}
