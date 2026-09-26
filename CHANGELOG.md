@@ -14,6 +14,71 @@ number. Sharing a version would mean one of those two facts had to be lied about
 
 ## [Unreleased]
 
+Verified against `acemq-amqp` 0.7.1, which the declared `~> 0.7.0` already admits.
+No constraint change, so this is not a release of the dependency.
+
+### Added
+
+- **`config.acemq.interceptors`**, applied to the process connection as it is
+  opened. A bare object is accepted as well as an array, and each entry is offered
+  to both the publish and the consume side — the library works out which hooks an
+  object answers to once, at registration, so an object with only `before_publish`
+  is a publish interceptor and nothing else. It is how the library's own
+  `Telemetry::OpenTelemetry#install` registers itself, which is why this is one
+  setting rather than two that have to be kept apart.
+
+  It exists because the alternative was worse rather than merely longer.
+  `intercept_publish` and `intercept_consume` are instance methods on
+  `AceMQ::AMQP::Connection`, so registering one from an initializer means reaching
+  for `AceMQ::Rails.connection` — and that **opens the socket during boot**, which
+  is the one thing `connect_on_boot: false` exists to avoid. The old advice did
+  that, it worked, and the cost was invisible.
+
+  A connection handed in with `AceMQ::Rails.connection=` is a test's own and is
+  left exactly as it was given.
+
+- **Documentation for the patterns the library ships, from Rails.** Eleven pages:
+  [patterns](docs/patterns.md) (the require, where each one runs, and the executor
+  that every hand-subscribed handler needs),
+  [outbox](docs/outbox.md), [idempotency](docs/idempotency.md),
+  [saga](docs/saga.md), [request/reply](docs/request-reply.md),
+  [scheduling](docs/scheduling.md), [streams](docs/streams.md),
+  [serialization](docs/serialization.md), [security](docs/security.md),
+  [interceptors](docs/interceptors.md) and [observability](docs/observability.md).
+
+  Two of them document a Rails-specific trap the library cannot know about. The
+  SQL-backed stores (`SQLOutboxStore`, `SQLIdempotencyStore`, `SQLSchemaRegistry`)
+  **do not work against `ActiveRecord::Base.connection.raw_connection` on
+  SQLite**: ActiveRecord sets `results_as_hash = true` on its sqlite3 connection
+  and the library's wrapper expects arrays, so inserts work and every `SELECT`
+  silently returns nothing — a relay that publishes nothing and says nothing. The
+  outbox and idempotency pages carry ActiveRecord-backed stores instead, with the
+  library's own column names and the migrations for them, which work on whatever
+  database the application uses.
+
+  And a stream consumer written as a class inherits
+  `config.acemq.consumer.max_attempts`, which on a stream means a retry
+  **appends a second copy** rather than redelivering the first.
+  `Patterns.read_stream` forces `RetryPolicy.none`; a consumer class has to say so.
+
+### Changed
+
+- **`publisher_confirms = false` now raises instead of being ignored.** It never
+  did anything: the library opens its publishing channel with `confirm_select` and
+  has no keyword for a publish without confirms. A line in a configuration file
+  that reads as though durability had been traded for speed, and changed nothing at
+  all, is worse than no line — the same argument an unknown key has always raised
+  on. `true` is still accepted, and is still the default.
+
+### Fixed
+
+- **`format` no longer claims names that do not exist.** The documented list
+  included `msgpack`, `cbor`, `avro` and `protobuf`; `AceMQ::AMQP::Codecs.build`
+  knows `bytes`, `json`, `string`, `toml`, `xml` and `yaml`, and raises for
+  anything else. Protobuf and Avro are deliberately not names — each needs a
+  generated class, a schema or a registry, which a string cannot carry — so each is
+  built and handed over in `codec`. Documentation and the YARD comment both.
+
 ## [0.1.0] - 2026-09-20
 
 First release. Rails integration for `acemq-amqp` `~> 0.7.0`, published to
