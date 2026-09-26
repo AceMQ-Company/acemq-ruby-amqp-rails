@@ -14,6 +14,8 @@ number. Sharing a version would mean one of those two facts had to be lied about
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-26
+
 Verified against `acemq-amqp` 0.7.1, which the declared `~> 0.7.0` already admits.
 No constraint change, so this is not a release of the dependency.
 

@@ -99,10 +99,14 @@ jobs:
           declared=$(ruby -Ilib -racemq/rails/version -e 'print AceMQ::Rails::VERSION')
           if [ "$IS_TAG" = "true" ]; then
             version="${REF#v}"
+            # Lifted to 0.2.x for 0.2.0, which adds config.acemq.interceptors and
+            # makes publisher_confirms = false raise instead of doing nothing. A new
+            # public setting and a setting that now refuses a value it used to accept
+            # are not a patch, whatever the 0.x preamble permits.
             case "$version" in
-              0.1.*) ;;
+              0.2.*) ;;
               *)
-                echo "::error::this gem releases 0.1.x only; '$version' needs the guard in release.yml lifted first"
+                echo "::error::this gem releases 0.2.x only; '$version' needs the guard in release.yml lifted first"
                 exit 1
                 ;;
             esac
