@@ -72,15 +72,39 @@ module AceMQ
       # the library's.
       attr_accessor :max_outstanding_publishes
 
-      # Whether a publish waits for the broker to confirm it. True is the only
-      # setting that makes "it was published" mean anything, and it is the
-      # default; the accessor exists so that a test which never wants to wait
-      # can say so out loud rather than by accident.
-      attr_accessor :publisher_confirms
+      # Whether a publish waits for the broker to confirm it. True, and the
+      # writer refuses anything else.
+      #
+      # Confirms are not optional in the library and there is no keyword to ask
+      # for a publish without them: the publishing channel calls
+      # +confirm_select+ the moment it is opened, and +publish+ raises
+      # {AceMQ::AMQP::PublishError} when nothing comes back. The setting stays
+      # because it has been documented as one since 0.1.0, and it refuses rather
+      # than being ignored — a line in a configuration file that reads as though
+      # it turned durability off, and did nothing at all, is worse than no line.
+      attr_reader :publisher_confirms
 
-      # The codec name, resolved through +AceMQ::AMQP::Codecs+: json, string,
-      # bytes, yaml, toml, xml, msgpack, cbor, avro, protobuf. A codec *object*
-      # goes in +codec+ instead and wins.
+      # @raise [AceMQ::AMQP::ConfigurationError] for anything false
+      def publisher_confirms=(value)
+        unless value
+          raise AceMQ::AMQP::ConfigurationError,
+                "acemq: publisher_confirms cannot be turned off. The library opens its " \
+                "publishing channel with confirm_select and raises PublishError when the " \
+                "broker does not answer, so there is no unconfirmed publish to ask for. " \
+                "Remove the setting."
+        end
+
+        @publisher_confirms = true
+      end
+
+      # The codec name, resolved through +AceMQ::AMQP::Codecs.build+: bytes,
+      # json, string, toml, xml, yaml. +AceMQ::AMQP::Codecs.names+ is the list,
+      # and a name that is not on it raises.
+      #
+      # Protobuf and Avro are deliberately *not* names. Each needs something a
+      # string cannot carry — a generated message class, a schema, a registry —
+      # so each is built and handed over as an object in +codec+ instead. See
+      # docs/serialization.md.
       attr_accessor :format
 
       # A codec instance, for anything that cannot be named — a composite, an
@@ -94,6 +118,30 @@ module AceMQ
       # A telemetry reporter: anything answering +count+, +observe+ and +gauge+.
       # Nil means the library's own no-op, which costs nothing.
       attr_accessor :telemetry
+
+      # Interceptors applied to the process connection as it is opened.
+      #
+      # An interceptor lives on a connection — +intercept_publish+ and
+      # +intercept_consume+ are instance methods on
+      # {AceMQ::AMQP::Connection} — so registering one from an initializer means
+      # reaching for {AceMQ::Rails.connection}, and that *opens the socket during
+      # boot*. It is the one thing +connect_on_boot: false+ exists to avoid, and
+      # it happens quietly: the application dials the broker on the way up and
+      # nothing in the configuration says why. This list is applied on the way
+      # out of +Connection.open+ instead, so an interceptor costs nothing until
+      # something publishes or consumes.
+      #
+      # Each entry is registered on **both** sides. The library works out which
+      # hooks an object actually answers to once, at registration, so an object
+      # with only +before_publish+ is a publish interceptor and nothing else —
+      # which is exactly how the library's own
+      # +AceMQ::AMQP::Telemetry::OpenTelemetry#install+ registers itself. A bare
+      # object is accepted as well as an array.
+      #
+      # Ruby rather than YAML, because an interceptor is an object. Applied only
+      # by {AceMQ::Rails.connection}: a connection handed in with
+      # +AceMQ::Rails.connection=+ is a test's own, and is left as it was given.
+      attr_accessor :interceptors
 
       # Declared on boot of the consumer process, and by +rake acemq:topology+.
       # A hash of +exchanges+, +queues+ and +bindings+; see TopologyBuilder.
@@ -140,6 +188,7 @@ module AceMQ
         @connect_on_boot = false
         @transport_options = {}
         @topology = {}
+        @interceptors = []
         @consumer_paths = []
         @consumer = ConsumerDefaults.new
       end
