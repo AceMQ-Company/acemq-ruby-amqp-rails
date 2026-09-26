@@ -24,6 +24,30 @@ RSpec.describe AceMQ::Rails::Configuration do
     end
   end
 
+  describe "#publisher_confirms=" do
+    it "takes the value it already has" do
+      config.assign("publisher_confirms" => true)
+
+      expect(config.publisher_confirms).to be(true)
+    end
+
+    it "refuses to be turned off rather than being quietly ignored" do
+      # The library opens its publishing channel with `confirm_select` and has no
+      # keyword for a publish without confirms, so there is nothing for `false`
+      # to do. Accepting it would leave a line in config/acemq.yml that reads as
+      # though durability had been traded for speed and changed nothing at all.
+      expect { config.assign("publisher_confirms" => false) }
+        .to raise_error(AceMQ::AMQP::ConfigurationError,
+                        /publisher_confirms cannot be turned off/)
+    end
+  end
+
+  describe "#interceptors" do
+    it "is empty, so nothing is wrapped that was not asked for" do
+      expect(config.interceptors).to eq([])
+    end
+  end
+
   describe "#assign" do
     it "takes the string keys a YAML file gives" do
       config.assign("url" => "amqp://broker:5672", "client_name" => "checkout")

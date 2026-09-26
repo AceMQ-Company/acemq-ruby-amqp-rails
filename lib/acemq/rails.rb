@@ -90,9 +90,25 @@ module AceMQ
         LOCK.synchronize do
           @connection ||= begin
             url, options = config.connection_arguments
-            AceMQ::AMQP::Connection.open(url, **options)
+            intercept(AceMQ::AMQP::Connection.open(url, **options))
           end
         end
+      end
+
+      # Registers +config.acemq.interceptors+ on a freshly opened connection.
+      #
+      # Here rather than in an initializer, because an interceptor lives on a
+      # connection and an initializer that reaches for one opens the socket
+      # during boot — see {Configuration#interceptors}. Each is offered to both
+      # sides; the library keeps only the hooks the object answers to.
+      #
+      # @api private
+      def intercept(connection)
+        Array(config.interceptors).each do |interceptor|
+          connection.intercept_publish(interceptor)
+          connection.intercept_consume(interceptor)
+        end
+        connection
       end
 
       # Whether a connection has been opened. Does not open one.
