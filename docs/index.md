@@ -63,10 +63,27 @@ run inside Puma**, and [consumers.md](consumers.md) is the argument at length.
 |---|---|
 | **Start here** | [Getting started](getting-started.md) |
 | **Reference** | [Configuration](configuration.md) — every setting |
-| **Usage** | [Publishing](publishing.md) · [Consumers](consumers.md) · [Topology](topology.md) · [Testing](testing.md) |
-| **Operations** | [Shutdown and the drain](lifecycle.md) · [Health](health.md) · [Eager loading and reloading](reloading.md) |
+| **Usage** | [Publishing](publishing.md) · [Consumers](consumers.md) · [Topology](topology.md) · [Serialization](serialization.md) · [Testing](testing.md) |
+| **Security** | [TLS, credentials, certificates, payload encryption](security.md) |
+| **Patterns** | [From Rails](patterns.md) · [Outbox](outbox.md) · [Idempotency](idempotency.md) · [Saga](saga.md) · [Request/reply](request-reply.md) · [Scheduling](scheduling.md) · [Streams](streams.md) |
+| **Operations** | [Shutdown and the drain](lifecycle.md) · [Health](health.md) · [Observability](observability.md) · [Interceptors](interceptors.md) · [Eager loading and reloading](reloading.md) |
 | **Design** | [Why this is not an ActiveJob adapter](not-activejob.md) |
 | **Support** | [Enterprise support](https://acemq.com) |
+
+## Versions
+
+| | |
+|---|---|
+| Ruby | 3.1 and later |
+| Rails | 7.1, 7.2 and 8.x. Rails 8 needs Ruby 3.2, which is Rails' constraint rather than one this gem adds |
+| `acemq-amqp` | `~> 0.7.0` — every 0.7.x, and the next minor is looked at before it ships here |
+| Transport | `bunny ~> 2.23`, named by the application. The library declares no runtime dependencies at all |
+
+The constraint on the library is three components on purpose: `~> 0.7` would be
+pessimistic on the *major* and would quietly admit a 0.8 that changed something this
+gem is written against. A weekly job checks that the constraint still admits the
+newest release, because a constraint that has stopped doing so looks exactly like one
+that still does until somebody looks.
 
 ## What it is not
 
@@ -74,5 +91,6 @@ run inside Puma**, and [consumers.md](consumers.md) is the argument at length.
 - **Not a replacement for the library.** `AceMQ::Rails.publish` is a delegation to
   `AceMQ::AMQP::Connection#publish`, and every keyword is the library's.
 - **Not an Engine.** No routes, no views, no migrations, nothing to mount.
-- **Not a scheduler, an outbox or a saga.** The library has all three; reach for
-  `AceMQ::AMQP::Patterns` with the connection this gem holds.
+- **Not a scheduler, an outbox or a saga.** The library has all three and this gem
+  wraps none of them. [patterns.md](patterns.md) is how each one is reached from
+  Rails, and which of them needs a process rather than a setting.

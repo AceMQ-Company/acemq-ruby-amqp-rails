@@ -90,6 +90,7 @@ gem "bunny", "~> 2.23"
 | `AceMQ::Rails.publish` / `.publish_all` | Delegations to the library, keywords and all |
 | `AceMQ::Rails::Consumer` | A handler for one queue, in `app/consumers`, testable by calling `new.call(message)` |
 | `AceMQ::Rails::Health.check` | Composes into `AceMQ::AMQP::Health.aggregate` beside the checks the application already has |
+| `config.acemq.interceptors` | Applied as the connection opens, so registering one does not dial the broker during boot |
 | `rake acemq:topology` / `:consume` / `:health` / `:consumers` | |
 | `acemq-consumer` | The consumer process |
 | an `at_exit` | Closes the connection tidily in a web process that published |
@@ -182,7 +183,7 @@ Docker for the integration tests.
 
 ## Documentation
 
-Eleven pages, published at
+Twenty-three pages, published at
 **<https://acemq.org/acemq-ruby-amqp-rails/>**. They read as markdown in
 [docs/](docs/) too, and render with `.github/scripts/build-docs-site.sh`.
 
@@ -190,10 +191,18 @@ Eleven pages, published at
 |---|---|
 | **Start here** | [docs/index.md](docs/index.md) · [Getting started](docs/getting-started.md) |
 | **Reference** | [Configuration](docs/configuration.md) — every setting |
-| **Usage** | [Publishing](docs/publishing.md) · [Consumers](docs/consumers.md) · [Topology](docs/topology.md) · [Testing](docs/testing.md) |
-| **Operations** | [Shutdown and the drain](docs/lifecycle.md) · [Health](docs/health.md) · [Eager loading and reloading](docs/reloading.md) |
+| **Usage** | [Publishing](docs/publishing.md) · [Consumers](docs/consumers.md) · [Topology](docs/topology.md) · [Serialization](docs/serialization.md) · [Testing](docs/testing.md) |
+| **Security** | [TLS, credentials, certificates, payload encryption](docs/security.md) |
+| **Patterns** | [From Rails](docs/patterns.md) · [Outbox](docs/outbox.md) · [Idempotency](docs/idempotency.md) · [Saga](docs/saga.md) · [Request/reply](docs/request-reply.md) · [Scheduling](docs/scheduling.md) · [Streams](docs/streams.md) |
+| **Operations** | [Shutdown and the drain](docs/lifecycle.md) · [Health](docs/health.md) · [Observability](docs/observability.md) · [Interceptors](docs/interceptors.md) · [Eager loading and reloading](docs/reloading.md) |
 | **Design** | [Why this is not an ActiveJob adapter](docs/not-activejob.md) |
 | **Support** | [Enterprise support](https://acemq.com) |
+
+The patterns pages are about the library's `AceMQ::AMQP::Patterns` used from a Rails
+application, because this gem wraps none of them and that is the design. What a Rails
+application needs in order to reach for one is the connection it already has, a
+`require` that is easy to miss, and somewhere other than Puma to run it —
+[docs/patterns.md](docs/patterns.md) is those three things.
 
 ## A version line of its own
 

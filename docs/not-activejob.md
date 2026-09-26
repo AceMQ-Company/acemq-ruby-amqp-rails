@@ -56,6 +56,28 @@ raises `PublishError` if it does not, which is the difference between "the bytes
 reached a socket" and "the broker has it". An adapter would have to swallow that
 or block inside `perform_later`, and both are surprises.
 
+**`set(wait:)` and a scheduled message are not the same delay.** ActiveJob's is
+exact, kept in a table this application owns, and cancellable — `wait_until` is a
+row somebody can delete. [Scheduling](scheduling.md) here is TTL queues: accurate to
+about a second at best, held in the broker, and not cancellable at all, because
+there is nothing to delete. Both are right for their own case, and an adapter would
+have to present one as the other. The failure mode is somebody reading `wait: 3.days`
+and a retention policy in the same sentence.
+
+**The transactional story is upside down.** ActiveJob has
+`enqueue_after_transaction_commit`, which is `after_commit` with better manners: the
+job is enqueued once the transaction has committed. That is the right answer for a
+job, because a job is this application's own work and losing one is a job that has to
+be re-enqueued by hand. It is not the right answer for an integration message, where
+the [outbox](outbox.md) writes the message *into* the transaction and a relay
+publishes what committed — a stronger guarantee, using a table, which ActiveJob has
+no hook for. An adapter would have to pick the weaker one.
+
+**Idempotency is not ActiveJob's problem, and it is this one's.** The whole of
+[idempotency.md](idempotency.md) exists because a handler will be called twice.
+`perform` has no such contract, and every ActiveJob backend's retry story is built on
+the assumption that it does not need one.
+
 ## What to do instead
 
 If you want background jobs, use ActiveJob with a job backend — Solid Queue,
@@ -81,6 +103,30 @@ end
 That handler is short, idempotent and fast, which is what a handler wants to be,
 and the slow unreliable part runs where Rails can see it. The seam between the
 two is explicit, which is the thing an adapter would have hidden.
+
+The reverse direction is the same shape. A job that has to tell the world what it did
+publishes through the [outbox](outbox.md) in the same transaction as its own work, so
+"the job succeeded" and "the message went out" are one fact rather than two:
+
+```ruby
+class FulfilmentJob < ApplicationJob
+  def perform(order_id)
+    order = Order.find(order_id)
+
+    ActiveRecord::Base.transaction do
+      order.fulfil!
+      OUTBOX.add(AceMQ::AMQP::Patterns.record(AceMQ::Rails.connection, order.as_json,
+                                              to: "order.fulfilled", exchange: "shop-events",
+                                              type: "order.fulfilled.v1"))
+    end
+  end
+end
+```
+
+ActiveJob's own retry then means what it says — the job is retried, the transaction
+rolls back, and no message was published for work that did not happen. An adapter
+that had turned the publish into `perform_later` could not have arranged that, because
+the publish would have been a second job with a second retry policy.
 
 ## The one thing an adapter would have given us
 

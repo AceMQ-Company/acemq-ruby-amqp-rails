@@ -244,7 +244,22 @@ NAV='<nav class="top">
       <a href="publishing.html">Publishing</a>
       <a href="consumers.html">Consumers</a>
       <a href="topology.html">Topology</a>
+      <a href="serialization.html">Serialization</a>
+      <a href="security.html">Security</a>
       <a href="testing.html">Testing</a>
+    </div>
+  </div>
+
+  <div class="group">
+    <button type="button" aria-haspopup="true">Patterns</button>
+    <div class="menu">
+      <a href="patterns.html">Patterns from Rails</a>
+      <a href="outbox.html">Transactional outbox</a>
+      <a href="idempotency.html">Idempotent consumer</a>
+      <a href="saga.html">Sagas</a>
+      <a href="request-reply.html">Request and reply</a>
+      <a href="scheduling.html">Scheduling</a>
+      <a href="streams.html">Streams</a>
     </div>
   </div>
 
@@ -253,6 +268,8 @@ NAV='<nav class="top">
     <div class="menu">
       <a href="lifecycle.html">Shutdown and the drain</a>
       <a href="health.html">Health</a>
+      <a href="observability.html">Observability</a>
+      <a href="interceptors.html">Interceptors</a>
       <a href="reloading.html">Eager loading and reloading</a>
       <a href="not-activejob.html">Why not ActiveJob</a>
       <a href="licence.html">Licence</a>

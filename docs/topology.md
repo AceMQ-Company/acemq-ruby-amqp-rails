@@ -53,6 +53,11 @@ wrong once and the second service to declare it is refused with
 part of a queue's identity, so two services sharing `shop.orders` have to declare
 the same kind or the second is refused.
 
+**`type: stream` works here**, with retention in `arguments`, and a stream is
+different enough from a queue that it has [a page of its own](streams.md) — no retry
+ladder, no dead-letter queue, and a default retry policy that is actively wrong for
+it.
+
 **`dead_letter: true` means `{name}.dlq`** and there is deliberately no way to
 name a different queue. The name comes from `Naming.dead_letter_queue` in all five
 libraries; a Ruby service that renamed its own would be draining a queue the Java

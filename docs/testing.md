@@ -85,6 +85,75 @@ it "publishes an event when an order is placed" do
 end
 ```
 
+### Interceptors, and the one thing a handed-in connection does not get
+
+`config.acemq.interceptors` is applied by `AceMQ::Rails.connection` when *it* opens a
+connection. A connection handed in with `AceMQ::Rails.connection=` is a test's own and
+is left exactly as it was given — which is what you want for a handler spec, and is
+the one thing that makes an interceptor spec different:
+
+```ruby
+it "applies the configured interceptors" do
+  AceMQ::Rails.config.interceptors = [TenantStamp.new]
+  # Let the gem open one, rather than assigning one.
+  allow(AceMQ::AMQP::Connection).to receive(:open)
+    .and_return(AceMQ::AMQP::Connection.new(transport: FakeTransport.new))
+
+  AceMQ::Rails.publish({ "order_id" => "A-1" }, to: "order.placed")
+
+  expect(AceMQ::Rails.connection.transport.published.first.headers["tenant"]).to be_present
+end
+```
+
+## Minitest
+
+Nothing here is RSpec-specific; the seams are `AceMQ::Rails.connection=` and calling
+a consumer class. In an `ActiveSupport::TestCase`:
+
+```ruby
+# test/test_helper.rb
+class ActiveSupport::TestCase
+  setup do
+    AceMQ::Rails::Registry.clear
+    AceMQ::Rails.config = AceMQ::Rails::Configuration.new
+    AceMQ::Rails.connection = AceMQ::AMQP::Connection.new(transport: FakeTransport.new)
+  end
+
+  teardown { AceMQ::Rails.connection = nil }
+
+  def published = AceMQ::Rails.connection.transport.published
+end
+```
+
+```ruby
+# test/consumers/orders_consumer_test.rb
+class OrdersConsumerTest < ActiveSupport::TestCase
+  test "begins fulfilment" do
+    message = AceMQ::AMQP::Message.new(
+      payload: { "order_id" => "A-1" },
+      envelope: AceMQ::AMQP::Envelope.new(type: "order.placed.v2")
+    )
+
+    assert_difference("Fulfilment.count") { OrdersConsumer.new.call(message) }
+  end
+
+  test "publishes on placing an order" do
+    Order.place!(order_params)
+
+    assert_equal ["order.placed"], published.map(&:routing_key)
+  end
+end
+```
+
+**`AceMQ::Rails::Registry.clear` in `setup` is not optional in either framework.** The
+registry is process-global by design — a Rails application has one — so a test that
+defines a consumer class leaks it into every later test, and anything exercising
+`Runner` finds consumers it never asked for.
+
+Resetting `AceMQ::Rails.config` matters for the same reason: it is module state, and
+a test that sets `config.acemq.interceptors` or a URL changes it for the rest of the
+run.
+
 ## Against a real broker
 
 For the things a fake cannot prove — that a message survives the wire, that a
@@ -123,6 +192,25 @@ A broker in Docker is enough:
 ```bash
 docker run -d --rm -p 5672:5672 rabbitmq:4-alpine
 ```
+
+## Parallel tests
+
+`parallelize` forks, and **a bunny socket does not survive `fork`**. A connection
+opened in the parent and used in a worker is a socket that is there, reads nothing and
+raises nothing — the same failure [consumers.md](consumers.md) describes for Puma's
+`preload_app!`.
+
+With a fake transport there is no socket and nothing to go wrong, which is the usual
+case. For the `:integration` group, open the connection inside the worker:
+
+```ruby
+parallelize_setup do
+  AceMQ::Rails.disconnect!     # whatever the parent had, this worker must not use
+end
+```
+
+`disconnect!` is safe when nothing was ever opened, which is what makes it usable
+here.
 
 ## This gem's own suite
 

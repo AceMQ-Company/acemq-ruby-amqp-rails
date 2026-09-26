@@ -26,6 +26,15 @@ gem "bunny", "~> 2.23"
 bundle install
 ```
 
+`~> 0.7.0` on the library is three components on purpose. `~> 0.7` would be
+pessimistic on the *major* — `>= 0.7, < 1.0` — and would quietly admit a 0.8 that
+changed something this gem is written against; `~> 0.7.0` is `>= 0.7.0, < 0.8.0`, so
+patch releases arrive on their own and the next minor is looked at before it ships
+here. `bundle install` resolves the newest 0.7.x the feed carries.
+
+Ruby 3.1 and later; Rails 7.1, 7.2 and 8.x. Rails 8 needs Ruby 3.2, which is Rails'
+constraint rather than one this gem adds.
+
 ## Configure
 
 ```yaml
@@ -59,9 +68,12 @@ production:
 
 This is Rails' own `config_for`, so `shared:`, per-environment sections and ERB
 all work exactly as they do in `database.yml`. Anything that cannot be written in
-YAML — a codec object, an interceptor, a telemetry reporter — goes in
-`config.acemq.*` in an environment file, which is applied *over* the file. See
-[configuration.md](configuration.md).
+YAML — a codec object, an interceptor, a telemetry reporter, an
+`AceMQ::AMQP::Security` — goes in `config.acemq.*` in an environment file, which is
+applied *over* the file. See [configuration.md](configuration.md).
+
+For production that usually means a TLS URL and credentials out of the environment;
+[security.md](security.md) is the page.
 
 ## Declare the broker's shape
 
@@ -149,3 +161,16 @@ render json: report.to_h, status: report.down? ? 503 : 200
 
 [health.md](health.md) has the rest, including why a blocked connection is
 reported healthy.
+
+## Then
+
+Nothing above is instrumented, encrypted or idempotent, and that is where most
+applications go next:
+
+| | |
+|---|---|
+| A TLS broker, credentials, encrypted payloads | [security.md](security.md) |
+| Metrics, tracing and what is worth alerting on | [observability.md](observability.md) |
+| An event that must not be published without its row | [outbox.md](outbox.md) |
+| A handler that will be called twice | [idempotency.md](idempotency.md) |
+| Everything else the library ships | [patterns.md](patterns.md) |

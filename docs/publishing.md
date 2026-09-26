@@ -25,18 +25,34 @@ here, and it is why this exists rather than every caller writing
 `Connection.open`.
 
 `AceMQ::Rails.connection` is the object itself, for everything this gem does not
-wrap — `Patterns::Requester`, the outbox relay, the scheduler, `pull`,
-interceptors:
+wrap — `Patterns::Requester`, the outbox relay, the scheduler, `pull`.
+[patterns.md](patterns.md) is the page about reaching for it, and the two things to
+get right when you do.
+
+Interceptors are the exception: they go in a setting rather than through the
+connection.
 
 ```ruby
-AceMQ::Rails.connection.intercept_publish do |context|
-  context.set_header("tenant", Current.tenant)
+# config/application.rb
+config.acemq.interceptors = [TenantStamp.new]
+```
+
+```ruby
+class TenantStamp
+  def before_publish(context)
+    context.set_header("tenant", Current.tenant)
+    context
+  end
 end
 ```
 
-Interceptors are registered once, at boot, in an initializer. A publisher reads
-the list at the moment it publishes rather than copying it, so one added later
-does apply — but a message already on its way will not see it.
+The setting exists because `intercept_publish` is an instance method, so registering
+one from an initializer means reaching for the connection — which **opens the socket
+during boot**, undoing `connect_on_boot: false` quietly. The list is applied on the
+way out of `Connection.open` instead. [interceptors.md](interceptors.md).
+
+A publisher reads the list at the moment it publishes rather than copying it, so one
+added later does apply — but a message already on its way will not see it.
 
 ## Confirms, and what "published" means
 
@@ -86,11 +102,15 @@ Two things are worth knowing:
 
 **A publish inside a database transaction is a lie waiting to happen.** The
 message goes out when `publish` returns; the transaction commits later, or does
-not. A consumer can read an event about a row that was rolled back. If that
-matters, use the library's outbox — `AceMQ::AMQP::Patterns::SQLOutboxStore`
-writes the message into the same transaction and a relay publishes it afterwards.
+not. A consumer can read an event about a row that was rolled back.
+`after_commit` narrows that window and does not close it, and the
+[outbox](outbox.md) is what closes it — the message is written as a row in the same
+transaction as the work, and a relay publishes what committed.
 
 **A slow broker is a slow request.** `publish` waits for a confirm. That is
 usually a millisecond or two and occasionally, on a broker under memory pressure
 that has blocked the connection, not. [health.md](health.md) covers what blocking
-means and why it is not a reason to restart anything.
+means and why it is not a reason to restart anything; the ceiling that stops a
+runaway loop holding a million messages in memory is
+[`max_outstanding_publishes`](observability.md#the-publish-ceiling), and reaching it
+raises rather than waiting.

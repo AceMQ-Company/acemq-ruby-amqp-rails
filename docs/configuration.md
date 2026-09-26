@@ -49,15 +49,58 @@ off.
 
 | Setting | Default | |
 |---|---|---|
-| `format` | `json` | Resolved through `AceMQ::AMQP::Codecs`: json, string, bytes, yaml, toml, xml, msgpack, cbor, avro, protobuf |
-| `codec` | — | A codec *object*, for anything that cannot be named — a composite, an encrypted one, a claim-check wrapper. Wins over `format` |
+| `format` | `json` | A name `AceMQ::AMQP::Codecs.build` knows: `bytes`, `json`, `string`, `toml`, `xml`, `yaml`. Anything else raises and names the list |
+| `codec` | — | A codec *object*, for anything that cannot be named — a composite, protobuf, Avro, an encrypted one, a claim-check wrapper. Wins over `format` |
 | `max_outstanding_publishes` | the library's | How many publishes may be waiting for a confirm at once. Added to the library in 0.6.0 |
-| `publisher_confirms` | `true` | The only setting that makes "it was published" mean anything |
+| `publisher_confirms` | `true` | Cannot be turned off; `false` raises. See below |
+
+**Protobuf and Avro are not names**, and that is not an omission: each needs
+something a string cannot carry — a generated message class, a schema, a registry —
+so each is built and handed over in `codec`. [serialization.md](serialization.md) is
+the whole of this.
 
 `max_outstanding_publishes` is the back pressure that stops a runaway loop from
 holding a million messages in this process's memory, and it is what bounds a
 `publish_all` larger than the ceiling: such a batch is written in waves rather
-than held whole.
+than held whole. Reaching it raises `PublishError` rather than waiting —
+[observability.md](observability.md#the-publish-ceiling) says why, and what to do
+about it.
+
+**`publisher_confirms` cannot be turned off, and setting it to false raises.** The
+library opens its publishing channel with `confirm_select` and has no keyword for a
+publish without confirms, so there is nothing for `false` to do. It refuses rather
+than being ignored, for the same reason an unknown key does: a line in a
+configuration file that reads as though durability had been traded for speed, and
+changed nothing at all, is worse than no line.
+
+## Interceptors and telemetry
+
+Neither can be written in YAML, because both are objects.
+
+| Setting | Default | |
+|---|---|---|
+| `interceptors` | `[]` | Applied to the process connection as it is opened. A bare object is accepted as well as an array |
+| `telemetry` | — | A reporter answering `count`, `observe` and `gauge`. Nil is the library's own no-op, which costs nothing |
+
+```ruby
+# config/application.rb
+config.acemq.interceptors = [TenantStamp.new, AceMQ::AMQP::Telemetry::OpenTelemetry.new]
+config.acemq.telemetry = AceMQStatsdReporter.new(STATSD)
+```
+
+**`interceptors` exists so that registering one does not open the broker
+connection.** `intercept_publish` and `intercept_consume` are instance methods, so an
+initializer that reaches for `AceMQ::Rails.connection` to call one dials the broker
+during boot — the one thing `connect_on_boot: false` is for, and it happens quietly.
+This list is applied on the way out of `Connection.open` instead.
+
+Each entry is offered to both sides; the library keeps only the hooks the object
+answers to, which is how one setting serves publishing and consuming both. A
+connection handed in with `AceMQ::Rails.connection=` — a test's own — is left exactly
+as it was given.
+
+[interceptors.md](interceptors.md) and
+[observability.md](observability.md) are the pages.
 
 ## TLS
 
@@ -72,6 +115,13 @@ A `Security` object rather than a set of YAML paths, because the library's
 asked for, a minimum TLS version, a client certificate that has to be a pair —
 and re-expressing them here would be re-implementing them. `amqps://` on its own
 needs none of this: it verifies against the system trust store.
+
+Mutual TLS, credentials from a mounted file, a rotating secret, development
+certificates and payload encryption are all [security.md](security.md).
+
+> Do not set credentials twice. A `Security` built with `credentials:` in it, plus
+> `username`/`password` here, raises `ConfigurationError` — "put them in one place so
+> there is no question which login is used".
 
 ## Consumer defaults
 
@@ -95,7 +145,17 @@ sit through it. [lifecycle.md](lifecycle.md) has the arithmetic.
 
 ## Topology
 
-See [topology.md](topology.md).
+| Setting | Default | |
+|---|---|---|
+| `topology` | `{}` | The exchanges, queues and bindings. Empty applies nothing, silently and on purpose |
+| `declare_topology_on_boot` | `true` | Whether the consumer process applies it as it starts |
+
+`declare_topology_on_boot` is true because a consumer that starts before its queue
+exists reads nothing and says nothing about why. Turn it off for an estate where a
+deployment tool owns the broker — `bin/rails acemq:topology` is then the only thing
+that declares anything.
+
+See [topology.md](topology.md), and [streams.md](streams.md) for `type: stream`.
 
 ## Shutdown
 
