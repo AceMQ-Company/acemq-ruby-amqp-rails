@@ -14,6 +14,19 @@ number. Sharing a version would mean one of those two facts had to be lied about
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-12
+
+Requires `acemq-amqp` 0.7.12. The constraint moves from `~> 0.7.11` to `~> 0.7.12`,
+which still admits every later 0.7.x and nothing from 0.8.
+
+### Fixed
+
+- **A retry hop the broker refuses no longer leaves the job's message stuck.**
+  When a failed job is sent on to its next retry and the broker will not take
+  that copy, the original message used to stay unacknowledged — holding one of the
+  consumer's slots until the connection closed. It is now put back on its queue to
+  be tried again, and the consumer keeps running.
+
 ## [0.2.1] - 2026-10-12
 
 Requires `acemq-amqp` 0.7.11. The constraint moves from `~> 0.7.0` to `~> 0.7.11`,

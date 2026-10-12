@@ -70,8 +70,10 @@ The library's own publishes, the ones it makes on your behalf, do not wait for y
 to ask. Retry hops, parking a message or sending it to the dead-letter queue, the
 outbox relay, replay, the scheduler, and routing-slip and pipeline hops are always
 confirmed, and when the copy reaches no queue the
-original is kept rather than acknowledged away. Since `acemq-amqp` 0.7.11, which
-is the floor this gem declares.
+original is kept rather than acknowledged away. When the broker refuses a retry
+hop outright, the original is requeued and the consumer keeps running, rather than
+the message sitting unacknowledged until the channel closes. Both hold since
+`acemq-amqp` 0.7.12, which is the floor this gem declares.
 
 ## Batches
 
