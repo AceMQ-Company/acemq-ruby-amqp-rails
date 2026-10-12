@@ -99,7 +99,7 @@ for the real-Rails-application group by name.
   would break this gem's own dependency as well as the release;
 - it then **installs the published gem back out of the feed** and prints its
   version. A feed is only real if a client can resolve from it, and this gem asks
-  more of it than the library does: `acemq-amqp ~> 0.7.0` has to resolve from the
+  more of it than the library does: `acemq-amqp ~> 0.7.11` has to resolve from the
   same index in the same install. GitHub Pages takes a moment to serve a new
   commit, so this retries for five minutes rather than racing the deploy.
 

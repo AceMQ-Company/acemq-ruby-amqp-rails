@@ -14,6 +14,25 @@ number. Sharing a version would mean one of those two facts had to be lied about
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-12
+
+Requires `acemq-amqp` 0.7.11. The constraint moves from `~> 0.7.0` to `~> 0.7.11`,
+which still admits every later 0.7.x and nothing from 0.8.
+
+### Changed
+
+- **The library floor is 0.7.11**, so an application on this gem gets two fixes
+  without having to know to ask for them:
+  - **Stream readers resume where they were after a reconnect**, instead of
+    starting again from the offset they were first given.
+  - **Unroutable messages are kept rather than lost.** An outbox record that
+    reaches no queue stays in the outbox, counts the attempt and is reported to
+    `on_error:`, instead of being confirmed, dropped and marked published. The
+    library's other publishes on your behalf — retry hops, parking and the
+    dead-letter queue, replay, the scheduler, and routing-slip and pipeline hops
+    — are always confirmed, and keep the original when the copy reaches no queue.
+- [publishing](docs/publishing.md) says so where confirms are explained.
+
 ## [0.2.0] - 2026-09-26
 
 Verified against `acemq-amqp` 0.7.1, which the declared `~> 0.7.0` already admits.

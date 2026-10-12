@@ -66,6 +66,13 @@ message the broker had nowhere to put is returned, and the resulting
 really did go nowhere, which makes it cheap enough to leave on for the publishes
 that would be a bug to lose.
 
+The library's own publishes, the ones it makes on your behalf, do not wait for you
+to ask. Retry hops, parking a message or sending it to the dead-letter queue, the
+outbox relay, replay, the scheduler, and routing-slip and pipeline hops are always
+confirmed, and when the copy reaches no queue the
+original is kept rather than acknowledged away. Since `acemq-amqp` 0.7.11, which
+is the floor this gem declares.
+
 ## Batches
 
 0.6.0 of the library added `publish_all`, which hands every message to the broker
