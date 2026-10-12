@@ -416,19 +416,41 @@ jobs:
         run: |
           git config user.name "acemq-release"
           git config user.email "noreply@acemq.org"
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "nothing to publish; $VERSION may already be in the feed"
-            # Already there, so as far as anybody installing this gem is
-            # concerned it is published, and the jobs after this one should do
-            # what they would have done on a first run. Saying otherwise leaves
-            # a re-run of a good release with no page and no announcement.
-            echo "published=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git add -A
-          git commit -m "Publish acemq-amqp-rails $VERSION"
-          git push origin HEAD
-          echo "published=true" >> "$GITHUB_OUTPUT"
+          # Every release of every package pushes to this one repository, so
+          # another one can land between the checkout and this push: on 12
+          # October 2026 a Java release lost exactly that race on the Maven
+          # feed. publish.sh regenerates the specs indexes, the compact index
+          # and the landing page from every file present, so a rebase would
+          # carry a stale index onto the newer commit. A retry starts again from
+          # the feed as it now is and runs publish.sh over it, which puts both
+          # releases in the index.
+          branch="$(git rev-parse --abbrev-ref HEAD)"
+          for attempt in 1 2 3 4 5; do
+            if [ "$attempt" -gt 1 ]; then
+              echo "::warning::push $((attempt - 1)) of 5 rejected; another release got there first, regenerating over it"
+              sleep $((RANDOM % 15 + 5))
+              git fetch origin "$branch"
+              git reset --hard FETCH_HEAD
+              ./scripts/publish.sh "$RUNNER_TEMP/acemq-amqp-rails-$VERSION.gem"
+            fi
+            if [ -z "$(git status --porcelain)" ]; then
+              echo "nothing to publish; $VERSION may already be in the feed"
+              # Already there, so as far as anybody installing this gem is
+              # concerned it is published, and the jobs after this one should do
+              # what they would have done on a first run. Saying otherwise leaves
+              # a re-run of a good release with no page and no announcement.
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            git add -A
+            git commit -m "Publish acemq-amqp-rails $VERSION"
+            if git push origin HEAD; then
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::error::$VERSION could not be pushed to the feed after 5 attempts; nothing was pushed"
+          exit 1
 
       - name: Install it back out of the feed
         # The feed is only real if a client can resolve from it, and this gem
