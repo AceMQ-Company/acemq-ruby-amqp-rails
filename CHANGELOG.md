@@ -14,6 +14,25 @@ number. Sharing a version would mean one of those two facts had to be lied about
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-12
+
+Requires `acemq-amqp` 0.7.13. The constraint moves from `~> 0.7.12` to `~> 0.7.13`,
+which still admits every later 0.7.x and nothing from 0.8.
+
+### Fixed
+
+- **A reply the app cannot read now fails the request at once.** When a
+  controller or job made a request and the reply came back in a format the
+  connection's codec could not decode, the call waited out its whole timeout and
+  raised `RequestTimedOut`, as though nothing had answered. It now raises
+  `AceMQ::AMQP::DecodeError` as soon as the reply arrives, so the page or job
+  fails fast and the error names the real problem.
+- **Requesting no longer leaves queues on the broker.** Every requester with a
+  generated reply queue declared durable `acemq-reply-<uuid>.dlq` and `.parked`
+  queues that stayed after the process exited, so each boot of a Puma worker or
+  consumer process that made requests left two more. They are no longer declared.
+  Queues left by earlier versions can be deleted.
+
 ## [0.2.2] - 2026-10-12
 
 Requires `acemq-amqp` 0.7.12. The constraint moves from `~> 0.7.11` to `~> 0.7.12`,

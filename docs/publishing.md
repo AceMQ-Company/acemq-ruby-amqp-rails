@@ -73,7 +73,7 @@ confirmed, and when the copy reaches no queue the
 original is kept rather than acknowledged away. When the broker refuses a retry
 hop outright, the original is requeued and the consumer keeps running, rather than
 the message sitting unacknowledged until the channel closes. Both hold since
-`acemq-amqp` 0.7.12, which is the floor this gem declares.
+`acemq-amqp` 0.7.12; the floor this gem declares is 0.7.13.
 
 ## Batches
 

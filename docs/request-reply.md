@@ -118,12 +118,17 @@ class ProductsController < ApplicationController
     @price = PRICES.call({ "sku" => params[:sku] })
   rescue AceMQ::AMQP::Patterns::RequestTimedOut
     @price = nil          # render the page without it
-  rescue AceMQ::AMQP::Patterns::ResponderFailed => e
+  rescue AceMQ::AMQP::Patterns::ResponderFailed, AceMQ::AMQP::DecodeError => e
     Rails.error.report(e)
     @price = nil
   end
 end
 ```
+
+A reply the requester's codec cannot read raises `AceMQ::AMQP::DecodeError` as soon
+as it arrives. Before `acemq-amqp` 0.7.13 the same reply was parked and the call
+waited out its whole timeout, so it showed up as `RequestTimedOut` — a slow page
+that hid a responder sending the wrong format.
 
 **Build one requester and keep it.** A `Requester` holds a reply queue and a
 consumer on it; one per request means a queue declared and torn down per request,
@@ -138,7 +143,9 @@ Without `reply_to:` it declares an **exclusive, auto-delete, classic** queue of 
 own. That combination is deliberate: exclusive means the broker deletes it when this
 connection goes, so a restart does not leave a queue behind, and it is why the queue
 cannot be a quorum queue (RabbitMQ refuses to replicate a queue that does not
-outlive its connection).
+outlive its connection). Before `acemq-amqp` 0.7.13 such a requester also declared
+durable `acemq-reply-<uuid>.dlq` and `.parked` queues that outlived it, two more on
+every process start; those left by earlier versions can be deleted.
 
 ### The timeout
 

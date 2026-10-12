@@ -15,7 +15,7 @@ gemspec
 # whatever is on the library's main branch, which is not what anybody installs,
 # and this family of repositories has shipped that mistake before.
 source "https://acemq.org/gems" do
-  gem "acemq-amqp", "~> 0.7.12"
+  gem "acemq-amqp", "~> 0.7.13"
 end
 
 group :development, :test do
