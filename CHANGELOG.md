@@ -14,6 +14,33 @@ number. Sharing a version would mean one of those two facts had to be lied about
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-13
+
+Requires `acemq-amqp` 0.7.14. The constraint moves from `~> 0.7.13` to `~> 0.7.14`,
+which still admits every later 0.7.x and nothing from 0.8.
+
+### Changed
+
+- **Every publish is now timed and tagged.** A metrics reporter set with
+  `config.acemq.telemetry` receives `acemq.publish.duration`, in seconds, for every
+  publish, and both it and `acemq.publish.total` carry `routing.key` and
+  `message.type` beside `exchange` and `outcome`. Prometheus output names them
+  `routing_key` and `message_type`. A dashboard that grouped publishes by exchange
+  still adds up the same.
+- **Reading a counter from the built-in registry still gives the total.**
+  `registry[metric, exchange:, outcome:]` now adds up every series that matches
+  the labels named, so a lookup that names only the exchange and outcome reads all
+  confirmed publishes to it, not 0.
+
+### Fixed
+
+- **An `acemq.yml` URL ending in a slash connects.** `amqp://host:5672/` used to be
+  refused by the broker with `vhost  not found`; it now connects to the default
+  vhost. A URL naming a vhost is unchanged.
+- **A message published with an empty routing key is typed `message`.** One sent
+  through a fanout exchange with no routing key and no type used to carry an empty
+  type; it now carries `message`, as it does from every other AceMQ language.
+
 ## [0.2.3] - 2026-10-12
 
 Requires `acemq-amqp` 0.7.13. The constraint moves from `~> 0.7.12` to `~> 0.7.13`,

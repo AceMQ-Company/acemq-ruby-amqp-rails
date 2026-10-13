@@ -12,7 +12,7 @@ credential.
 ```ruby
 # Gemfile
 source "https://acemq.org/gems" do
-  gem "acemq-amqp", "~> 0.7.13"
+  gem "acemq-amqp", "~> 0.7.14"
   gem "acemq-amqp-rails", "~> 0.2"
 end
 
@@ -26,16 +26,18 @@ gem "bunny", "~> 2.23"
 bundle install
 ```
 
-`~> 0.7.13` on the library is three components on purpose. `~> 0.7` would be
+`~> 0.7.14` on the library is three components on purpose. `~> 0.7` would be
 pessimistic on the *major* — `>= 0.7, < 1.0` — and would quietly admit a 0.8 that
-changed something this gem is written against; `~> 0.7.13` is `>= 0.7.13, < 0.8.0`,
+changed something this gem is written against; `~> 0.7.14` is `>= 0.7.14, < 0.8.0`,
 so patch releases arrive on their own and the next minor is looked at before it ships
 here. `bundle install` resolves the newest 0.7.x the feed carries. The floor is
-0.7.13: 0.7.11 is where stream readers resume after a reconnect and unroutable
+0.7.14: 0.7.11 is where stream readers resume after a reconnect and unroutable
 outbox records are kept rather than lost, 0.7.12 is where a retry hop the broker
-refuses requeues the message instead of leaving it unacknowledged, and 0.7.13 is
-where a reply a requester cannot decode fails the call at once and a requester stops
-leaving queues on the broker after it closes.
+refuses requeues the message instead of leaving it unacknowledged, 0.7.13 is where
+a reply a requester cannot decode fails the call at once and a requester stops
+leaving queues on the broker after it closes, and 0.7.14 is where a URL ending in a
+slash connects to the default vhost and every publish is timed as
+`acemq.publish.duration` and tagged with its routing key and type.
 
 Ruby 3.1 and later; Rails 7.1, 7.2 and 8.x. Rails 8 needs Ruby 3.2, which is Rails'
 constraint rather than one this gem adds.

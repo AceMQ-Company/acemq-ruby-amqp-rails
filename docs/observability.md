@@ -31,7 +31,8 @@ knowing before assuming messaging is instrumented: **out of the box it is not.**
 
 | Metric | | Labels |
 |---|---|---|
-| `acemq.publish.total` | Every publish | `exchange`, `outcome` |
+| `acemq.publish.total` | Every publish | `exchange`, `routing.key`, `message.type`, `outcome` |
+| `acemq.publish.duration` | Publish seconds, call to broker answer | `exchange`, `routing.key`, `message.type`, `outcome` |
 | `acemq.consume.total` | Every handler call | `queue`, `outcome` |
 | `acemq.consume.duration` | Handler seconds | `queue`, `outcome` |
 | `acemq.consume.attempts` | The attempt a delivery is on | `queue` |
@@ -81,8 +82,15 @@ end
 ```
 
 `ACEMQ_METRICS[AceMQ::AMQP::Telemetry::PUBLISH_TOTAL, exchange: "shop-events",
-outcome: "confirmed"]` reads one counter; `counts`, `gauges` and `timings` are the
-whole lot, and `timings` gives count, sum, min, max and mean per metric.
+outcome: "confirmed"]` sums every series whose labels include the ones given, so it
+reads every confirmed publish to that exchange whatever its routing key and type;
+`counts`, `gauges` and `timings` are the whole lot, and `timings` gives count, sum,
+min, max and mean per metric.
+
+`routing.key` and `message.type` are not legal Prometheus label names, so
+`to_prometheus` writes them `routing_key` and `message_type`. A reporter of your own
+that feeds Prometheus has to rename them the same way. A routing key that carries an
+id is one series per id, so keep ids in the payload rather than in the key.
 
 **The registry is per process, and that is the thing to understand about this
 endpoint.** Every Puma worker has its own, so `/metrics` reports whichever worker
