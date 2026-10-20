@@ -455,7 +455,7 @@ jobs:
       - name: Install it back out of the feed
         # The feed is only real if a client can resolve from it, and this gem
         # asks more of it than the library does: it has a dependency,
-        # `acemq-amqp ~> 0.7.15`, which lives in the same feed, so this also
+        # `acemq-amqp ~> 0.7.16`, which lives in the same feed, so this also
         # proves the index still resolves what was already published. railties
         # comes from rubygems.org, which is why both sources are named.
         # GitHub Pages takes a moment to serve a new commit, so this retries

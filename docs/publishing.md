@@ -60,11 +60,14 @@ A publish waits for the broker to confirm it and raises `PublishError` if it doe
 not. That is the difference between "the bytes reached a socket" and "the broker
 has it", and it is why `publish` returns rather than being fire-and-forget.
 
-`mandatory: true` adds a second question: was it routed to any queue at all? A
-message the broker had nowhere to put is returned, and the resulting
-`PublishError` answers `unroutable?`. It costs a round trip only when a message
-really did go nowhere, which makes it cheap enough to leave on for the publishes
-that would be a bug to lose.
+A publish is also **mandatory by default** (from `acemq-amqp` 0.7.16): it asks a
+second question, was it routed to any queue at all? A message the broker had
+nowhere to put is returned, and `AceMQ::Rails.publish` raises a `PublishError` that
+answers `unroutable?` — nearly always a typo in a routing key or a queue not
+declared yet. It costs a round trip only when a message really did go nowhere.
+`mandatory: false` opts out, for a fan-out where no subscriber at all is normal.
+Up to 0.7.15 the default was `false`, and an unroutable message was confirmed and
+dropped in silence.
 
 The library's own publishes, the ones it makes on your behalf, do not wait for you
 to ask. Retry hops, parking a message or sending it to the dead-letter queue, the
@@ -73,7 +76,11 @@ confirmed, and when the copy reaches no queue the
 original is kept rather than acknowledged away. When the broker refuses a retry
 hop outright, the original is requeued and the consumer keeps running, rather than
 the message sitting unacknowledged until the channel closes. Both hold since
-`acemq-amqp` 0.7.12; the floor this gem declares is 0.7.15.
+`acemq-amqp` 0.7.12. When the broker refuses a dead letter or park, the delivery is
+held for a second and requeued, so it is set aside once the queue takes it — it used
+to be dropped (from 0.7.16). An `x-acemq-` header the library has no field for,
+written by a newer version or another language, survives every one of these
+republishes. The floor this gem declares is 0.7.16.
 
 ## Batches
 

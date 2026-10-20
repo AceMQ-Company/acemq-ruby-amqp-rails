@@ -14,6 +14,30 @@ number. Sharing a version would mean one of those two facts had to be lied about
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-10-20
+
+Requires `acemq-amqp` 0.7.16. The constraint moves from `~> 0.7.15` to `~> 0.7.16`,
+which still admits every later 0.7.x and nothing from 0.8.
+
+### Changed
+
+- **`AceMQ::Rails.publish` is mandatory by default**, because the library's
+  `Connection#publish` is from 0.7.16: a message the broker can route nowhere raises a
+  `PublishError` whose `unroutable?` is true instead of being dropped. Pass
+  `mandatory: false` to opt out. [Publishing](docs/publishing.md) says so.
+- **A failing stream handler stops the reader.** `Patterns.read_stream`, as in the rebuild
+  rake task, cancels at the failed message and writes no copy anywhere;
+  `on_failure: :dead_letter` keeps the old behaviour. [Streams](docs/streams.md) says so.
+
+### Fixed
+
+- **A dead letter or park the broker refuses is requeued** after a one-second pause,
+  instead of being dropped.
+- **An `x-acemq-` header the library has no field for survives** every retry hop, dead
+  letter, park and replay.
+- **`acemq-replayed-at` is to the millisecond**, `2026-01-02T03:04:05.678Z`.
+  [Patterns](docs/patterns.md#replay) says so.
+
 ## [0.2.5] - 2026-10-20
 
 Requires `acemq-amqp` 0.7.15. The constraint moves from `~> 0.7.14` to `~> 0.7.15`,

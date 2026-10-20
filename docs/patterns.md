@@ -196,7 +196,9 @@ that it will always die.
 
 Each replayed message carries `acemq-replayed-from`, `acemq-replayed-at` and
 `acemq-replay-count`, so a message on its third trip through can be told from a new
-one.
+one. `acemq-replayed-at` is UTC to the millisecond, `2026-01-02T03:04:05.678Z` (whole
+seconds before `acemq-amqp` 0.7.16), and a replay keeps any `x-acemq-` header the
+library has no field for.
 
 ## Pipelines
 

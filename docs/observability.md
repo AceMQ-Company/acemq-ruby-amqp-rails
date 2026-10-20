@@ -296,7 +296,7 @@ does not ask for it. What an application can do is record the offset of the last
 message it handled; [streams.md](streams.md#health-and-what-is-not-measured).
 
 **Whether a message was ever consumed.** A publisher gets a confirm, which means the
-broker has it. `mandatory: true` adds "and it was routed to at least one queue". That
+broker has it. `mandatory: true`, the default, adds "and it was routed to at least one queue". That
 is the end of what publishing can know, and the reason a workflow whose completion
 matters is a workflow with a reply or a state machine in it rather than a hope.
 

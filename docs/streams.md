@@ -161,7 +161,12 @@ rung queue, waits out a TTL, and comes back. On a stream, "comes back" means
 is a second copy further along. A projection reading `first` sees both.
 
 `AceMQ::AMQP::Patterns.read_stream` handles this by passing `RetryPolicy.none`
-whatever the connection carries. **A consumer class does not**, because a consumer
+whatever the connection carries, and from `acemq-amqp` 0.7.16 a handler that raises
+or asks for a retry **stops the reader** at that message: the subscription is
+cancelled, nothing after it is handled, no copy is written anywhere, and
+`consumer.running?` turns false with `consumer.stopped_by` saying why.
+`on_failure: :dead_letter` is the old behaviour, a copy in `{stream}.dlq` and carry
+on. In the rebuild task below, a raise therefore ends the rebuild where it failed. **A consumer class does not**, because a consumer
 class inherits `config.acemq.consumer.max_attempts`, and an application that set
 that globally — which is the sensible thing to do for queues — has just given its
 stream consumer a retry ladder.
