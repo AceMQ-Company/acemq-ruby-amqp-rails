@@ -23,6 +23,6 @@ module AceMQ
     # acemq-amqp, and a library release that adds a publishing method is a
     # dependency bump here rather than a new number. Sharing a version with the
     # library would mean one of those two facts had to be lied about.
-    VERSION = "0.2.4"
+    VERSION = "0.2.5"
   end
 end

@@ -14,6 +14,19 @@ number. Sharing a version would mean one of those two facts had to be lied about
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-10-20
+
+Requires `acemq-amqp` 0.7.15. The constraint moves from `~> 0.7.14` to `~> 0.7.15`,
+which still admits every later 0.7.x and nothing from 0.8.
+
+### Fixed
+
+- **A filtered replay returns only once the messages it passed over are back.**
+  `Patterns.replay` with a block, from a rake task, used to return before the declined
+  messages were requeued, so a `message_count` read straight after could show the source
+  queue short, sometimes zero. It now waits, bounded at five seconds, until the queue's
+  depth counts them again. [Patterns](docs/patterns.md#replay) says so.
+
 ## [0.2.4] - 2026-10-13
 
 Requires `acemq-amqp` 0.7.14. The constraint moves from `~> 0.7.13` to `~> 0.7.14`,

@@ -187,7 +187,9 @@ Three things worth knowing. `limit:` and `deadline:` both default to `0`, meanin
 unbounded — set one against a live queue, because a replay with neither reads until
 the queue is empty and a queue something is still dead-lettering into is never
 empty. Messages the filter declines are held unacknowledged for the whole pass, so
-a very large pass is a very large prefetch. And `restart: true`, the default, means
+a very large pass is a very large prefetch; they are back on the source queue, in
+order, before `replay` returns, so a depth read straight after counts them (from
+`acemq-amqp` 0.7.15; before it, the count could read short). And `restart: true`, the default, means
 the message goes back through the exchange as a new delivery with `attempt` reset,
 which is usually what you want and is not what you want if the reason it died was
 that it will always die.
