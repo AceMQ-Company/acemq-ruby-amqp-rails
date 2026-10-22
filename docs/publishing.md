@@ -80,7 +80,7 @@ the message sitting unacknowledged until the channel closes. Both hold since
 held for a second and requeued, so it is set aside once the queue takes it — it used
 to be dropped (from 0.7.16). An `x-acemq-` header the library has no field for,
 written by a newer version or another language, survives every one of these
-republishes. The floor this gem declares is 0.7.17.
+republishes. The floor this gem declares is 0.7.18.
 
 ## Batches
 

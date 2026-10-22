@@ -14,6 +14,16 @@ number. Sharing a version would mean one of those two facts had to be lied about
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-10-22
+
+### Changed
+
+- **Requires `acemq-amqp` 0.7.18** (`~> 0.7.18`), from 0.7.17. Nothing in this gem's surface
+  changed. What an application gains: `Patterns.follow_slip` and `Pipeline#follow` hand the
+  next step the incoming message's application headers (a tenant, a `traceparent`) and every
+  `x-acemq-` header the library has no field for; up to 0.7.17 those were lost at the first
+  hop. The getting-started page says so.
+
 ## [0.2.7] - 2026-10-21
 
 ### Changed
