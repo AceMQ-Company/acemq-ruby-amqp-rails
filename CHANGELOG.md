@@ -14,6 +14,14 @@ number. Sharing a version would mean one of those two facts had to be lied about
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-10-21
+
+### Changed
+
+- **Requires `acemq-amqp` 0.7.17** (`~> 0.7.17`), from 0.7.16. Nothing in this gem's surface
+  changed, and 0.7.17 changes no behaviour an application sees: it adds conformance coverage
+  and test fixes. This release keeps the floor on the release the gem is tested against.
+
 ## [0.2.6] - 2026-10-20
 
 Requires `acemq-amqp` 0.7.16. The constraint moves from `~> 0.7.15` to `~> 0.7.16`,

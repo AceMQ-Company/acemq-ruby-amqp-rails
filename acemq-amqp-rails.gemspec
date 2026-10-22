@@ -48,10 +48,10 @@ Gem::Specification.new do |spec|
   # Three components, because two do not mean what they look like. `~> 0.6` is
   # pessimistic on the *major*: it expands to `>= 0.6, < 1.0` and so quietly
   # admitted 0.7.0, a release that changed the Health API this gem is written
-  # against. `~> 0.7.16` expands to `>= 0.7.16, < 0.8.0` — patch fixes arrive on
+  # against. `~> 0.7.17` expands to `>= 0.7.17, < 0.8.0` — patch fixes arrive on
   # their own, and the next minor has to be looked at before it ships here.
   #
-  # The floor is 0.7.16. `Connection#blocked?`, `#blocked_reason` and
+  # The floor is 0.7.17. `Connection#blocked?`, `#blocked_reason` and
   # `#close(timeout:)` are all 0.7.0, and this gem calls every one of them; 0.7.11
   # is where stream readers resume where they were after a reconnect and where the
   # outbox relay and the library's other on-behalf publishes keep an unroutable
@@ -64,8 +64,9 @@ Gem::Specification.new do |spec|
   # where every publish is timed and tagged with its routing key and type;
   # 0.7.15 is where a filtered replay returns only once the messages it passed
   # over are back on the source queue; 0.7.16 is where a dead letter or park the
-  # broker refuses is requeued instead of dropped.
-  spec.add_dependency "acemq-amqp", "~> 0.7.16"
+  # broker refuses is requeued instead of dropped. 0.7.17 changes no behaviour;
+  # it is the release this gem is built and tested against.
+  spec.add_dependency "acemq-amqp", "~> 0.7.17"
 
   # Railtie, config_for, the executor and the error reporter. 7.1 rather than
   # 7.0 because 7.0 stopped getting security fixes in October 2025, and rather
