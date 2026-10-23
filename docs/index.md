@@ -76,7 +76,7 @@ run inside Puma**, and [consumers.md](consumers.md) is the argument at length.
 |---|---|
 | Ruby | 3.1 and later |
 | Rails | 7.1, 7.2 and 8.x. Rails 8 needs Ruby 3.2, which is Rails' constraint rather than one this gem adds |
-| `acemq-amqp` | `~> 0.7.18` — every 0.7.x from 0.7.18, and the next minor is looked at before it ships here |
+| `acemq-amqp` | `~> 0.7.19` — every 0.7.x from 0.7.19, and the next minor is looked at before it ships here |
 | Transport | `bunny ~> 2.23`, named by the application. The library declares no runtime dependencies at all |
 
 The constraint on the library is three components on purpose: `~> 0.7` would be

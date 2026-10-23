@@ -12,7 +12,7 @@ credential.
 ```ruby
 # Gemfile
 source "https://acemq.org/gems" do
-  gem "acemq-amqp", "~> 0.7.18"
+  gem "acemq-amqp", "~> 0.7.19"
   gem "acemq-amqp-rails", "~> 0.2"
 end
 
@@ -26,12 +26,12 @@ gem "bunny", "~> 2.23"
 bundle install
 ```
 
-`~> 0.7.18` on the library is three components on purpose. `~> 0.7` would be
+`~> 0.7.19` on the library is three components on purpose. `~> 0.7` would be
 pessimistic on the *major* — `>= 0.7, < 1.0` — and would quietly admit a 0.8 that
-changed something this gem is written against; `~> 0.7.18` is `>= 0.7.18, < 0.8.0`,
+changed something this gem is written against; `~> 0.7.19` is `>= 0.7.19, < 0.8.0`,
 so patch releases arrive on their own and the next minor is looked at before it ships
 here. `bundle install` resolves the newest 0.7.x the feed carries. The floor is
-0.7.18: 0.7.11 is where stream readers resume after a reconnect and unroutable
+0.7.19: 0.7.11 is where stream readers resume after a reconnect and unroutable
 outbox records are kept rather than lost, 0.7.12 is where a retry hop the broker
 refuses requeues the message instead of leaving it unacknowledged, 0.7.13 is where
 a reply a requester cannot decode fails the call at once and a requester stops
@@ -45,7 +45,9 @@ publish mandatory by default and stops a stream reader at a failing handler — 
 [publishing](publishing.md#confirms-and-what-published-means) and
 [streams](streams.md). 0.7.18 is where a routing-slip or pipeline hop hands the next step
 every application header (a tenant, a `traceparent`) and unknown `x-acemq-` header it
-arrived with, instead of losing them at the first step.
+arrived with, instead of losing them at the first step, and 0.7.19 is where such a hop
+keeps the run's `x-acemq-first-seen`, so `acemq.pipeline.run.duration` measures the whole
+run rather than the last hop.
 
 Ruby 3.1 and later; Rails 7.1, 7.2 and 8.x. Rails 8 needs Ruby 3.2, which is Rails'
 constraint rather than one this gem adds.

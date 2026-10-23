@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/AceMQ-Company/acemq-ruby-amqp-rails/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-ruby-amqp-rails/actions/workflows/ci.yml)
 [![authorship guard](https://github.com/AceMQ-Company/acemq-ruby-amqp-rails/actions/workflows/attribution-guard.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-ruby-amqp-rails/actions/workflows/attribution-guard.yml)
-[![version](https://img.shields.io/badge/version-0.2.8-blue)](https://github.com/AceMQ-Company/acemq-ruby-amqp-rails/releases)
+[![version](https://img.shields.io/badge/version-0.2.9-blue)](https://github.com/AceMQ-Company/acemq-ruby-amqp-rails/releases)
 [![gems](https://img.shields.io/badge/gems-acemq.org%2Fgems-blue)](https://acemq.org/gems)
 [![docs](https://img.shields.io/badge/docs-acemq.org-blue)](https://acemq.org/acemq-ruby-amqp-rails/)
 [![license](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
@@ -14,7 +14,7 @@ one connection, configured from `config/acemq.yml`; consumers written as classes
 and run in a process of their own; a health check that composes into whatever
 readiness endpoint the application already has.
 
-> **Status: `0.2.8`, published.** 109 examples — unit specs
+> **Status: `0.2.9`, published.** 109 examples — unit specs
 > against a fake transport, integration specs against RabbitMQ 4, and a spec that
 > generates a real Rails application, boots it under Puma, publishes through an
 > HTTP request, consumes in a second process and shuts it down with `SIGTERM`.
@@ -71,7 +71,7 @@ credential.
 
 ```ruby
 source "https://acemq.org/gems" do
-  gem "acemq-amqp", "~> 0.7.18"
+  gem "acemq-amqp", "~> 0.7.19"
   gem "acemq-amqp-rails", "~> 0.2"
 end
 

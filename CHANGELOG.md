@@ -14,6 +14,17 @@ number. Sharing a version would mean one of those two facts had to be lied about
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-10-22
+
+### Changed
+
+- **Requires `acemq-amqp` 0.7.19** (`~> 0.7.19`), from 0.7.18. Nothing in this gem's surface
+  changed. What an application gains: `Patterns.follow_slip` and `Pipeline#follow` keep the
+  run's `x-acemq-first-seen` on every hop, so `acemq.pipeline.run.duration` measures the whole
+  run instead of only the last hop, and an age-based retry limit at a later step counts from
+  the start of the run. A dashboard on that metric now shows whole-run times. The patterns
+  page says so.
+
 ## [0.2.8] - 2026-10-22
 
 ### Changed

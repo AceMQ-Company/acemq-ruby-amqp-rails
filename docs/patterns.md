@@ -290,6 +290,11 @@ end
 advantage over writing the queue name as a string: a renamed step is a boot-time
 failure rather than a consumer subscribed to a queue nothing publishes to.
 
+Every hop keeps the run's `x-acemq-first-seen`, so `acemq.pipeline.run.duration` measures
+the whole run, from the first publish to the last step, and an age-based retry limit at a
+later step counts from there too. That is from `acemq-amqp` 0.7.19; up to 0.7.18 each hop
+restarted it and the metric measured only the last hop.
+
 Note that the constant is in an initializer and the consumer reads it at class-body
 time. That is one of the few places in a Rails application where a top-level
 constant is the right answer — the queue name has to be the same in the topology
